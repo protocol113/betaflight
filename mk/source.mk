@@ -596,3 +596,13 @@ endif
 # platform mk adds a CAN driver (currently STM32G4 / H7 / C5). This keeps
 # non-CAN targets from having to compile a ~2k-line external library whose
 # symbols would never link.
+# Search path and source files for the MGRS forward-conversion library.
+# Compiled in size-optimised mode like OLC; the encoder is only called at
+# OSD redraw cadence so per-call cost is irrelevant — flash size matters more.
+MGRS_DIR := mgrs
+
+ifneq ($(MGRS_DIR),)
+INCLUDE_DIRS += $(LIB_MAIN_DIR)/$(MGRS_DIR)
+SRC += $(MGRS_DIR)/mgrs.c
+SIZE_OPTIMISED_SRC += $(MGRS_DIR)/mgrs.c
+endif

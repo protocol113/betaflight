@@ -2236,6 +2236,7 @@ const osdElementDrawFn osdElementDrawFunction[OSD_ITEM_COUNT] = {
 #endif
 #ifdef USE_OSD_NAV_MAP
     [OSD_NAV_MAP]                 = osdElementNavMap,
+#endif
 #ifdef USE_GPS_MGRS
     [OSD_GPS_MGRS]                = osdElementGpsMgrs,
 #endif
@@ -2409,6 +2410,7 @@ void osdAddActiveElements(void)
 #endif
 #ifdef USE_OSD_NAV_MAP
         osdAddActiveElement(OSD_NAV_MAP);
+#endif
 #ifdef USE_GPS_MGRS
         osdAddActiveElement(OSD_GPS_MGRS);
 #endif

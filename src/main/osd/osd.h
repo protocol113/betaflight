@@ -222,6 +222,7 @@ typedef enum {
     OSD_POS_HOLD_READY,         // pre-engagement Position Hold readiness indicator
 #endif
 
+    OSD_GPS_MGRS,               // Military Grid Reference System position string
     OSD_ITEM_COUNT // MUST BE LAST
 } osd_items_e;
 

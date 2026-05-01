@@ -97,6 +97,7 @@
 #include "io/flashfs.h"
 #include "io/gimbal.h"
 #include "io/gps.h"
+#include "io/gps_home.h"
 #include "io/ledstrip.h"
 #include "io/serial.h"
 #include "io/serial_4way.h"
@@ -1295,6 +1296,10 @@ case MSP_NAME:
         break;
     }
 #endif
+
+    case MSP2_GET_HOME:
+        mspWriteHomeState(dst);
+        break;
 
 #ifdef USE_OSD
     case MSP2_GET_OSD_WARNINGS: {

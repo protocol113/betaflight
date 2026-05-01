@@ -22,6 +22,8 @@
 
 #include "platform.h"
 
+#ifdef USE_GPS
+
 #include "common/streambuf.h"
 
 #include "io/gps.h"
@@ -38,3 +40,5 @@ void mspWriteHomeState(sbuf_t *dst)
     sbufWriteU8(dst, (uint8_t)gpsManualHomeState);
     sbufWriteU16(dst, gpsManualHomeCoordId);
 }
+
+#endif // USE_GPS

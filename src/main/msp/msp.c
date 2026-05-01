@@ -1297,9 +1297,11 @@ case MSP_NAME:
     }
 #endif
 
+#ifdef USE_GPS
     case MSP2_GET_HOME:
         mspWriteHomeState(dst);
         break;
+#endif
 
 #ifdef USE_OSD
     case MSP2_GET_OSD_WARNINGS: {

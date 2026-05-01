@@ -236,6 +236,7 @@
 #define PARAM_NAME_GPS_RESCUE_SANITY_CHECKS "gps_rescue_sanity_checks"
 #define PARAM_NAME_GPS_RESCUE_MIN_SATS "gps_rescue_min_sats"
 #define PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX "gps_rescue_allow_arming_without_fix"
+#define PARAM_NAME_GPS_RESCUE_ALLOW_EXTERNAL_HOME "gps_rescue_allow_external_home"
 
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_P "gps_rescue_velocity_p"
 #define PARAM_NAME_GPS_RESCUE_VELOCITY_I "gps_rescue_velocity_i"

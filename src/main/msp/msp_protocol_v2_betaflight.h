@@ -33,6 +33,7 @@
 #define MSP2_MCU_INFO                       0x300C
 #define MSP2_GYRO_SENSOR_ACTIVE             0x300D
 #define MSP2_GET_HOME                       0x300E  // returns lat/lon/alt + manualHomeState_e + coord_id
+#define MSP2_SET_EXTERNAL_HOME              0x300F  // accepts donor-captured home with quality gates + CRC16
 
 // MSP2_SET_TEXT and MSP2_GET_TEXT variable types
 #define MSP2TEXT_PILOT_NAME                      1

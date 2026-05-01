@@ -19,16 +19,24 @@
  */
 
 #include <stdint.h>
+#include <string.h>
 
 extern "C" {
     #include "platform.h"
+    #include "common/crc.h"
     #include "common/streambuf.h"
+    #include "fc/runtime_config.h"
     #include "io/gps.h"
     #include "io/gps_home.h"
 
     // gps.c provides this in the firmware build; define it here so the unit
     // test can exercise mspWriteHomeState() without linking the full GPS stack.
     gpsLocation_t GPS_home_llh = {};
+
+    // runtime_config.c references beeperConfirmationBeeps when toggling
+    // flight modes. The validator never enables/disables a flight mode, so
+    // this stub is sufficient for the linker.
+    void beeperConfirmationBeeps(uint8_t) {}
 }
 
 #include "unittest_macros.h"
@@ -36,7 +44,7 @@ extern "C" {
 
 namespace {
 
-constexpr size_t kPayloadBytes = 15;  // 4 (lat) + 4 (lon) + 4 (alt) + 1 (state) + 2 (coord_id)
+constexpr size_t kGetHomePayloadBytes = 15;  // 4 (lat) + 4 (lon) + 4 (alt) + 1 (state) + 2 (coord_id)
 
 void serializeHome(uint8_t *buf, size_t bufLen)
 {
@@ -44,7 +52,7 @@ void serializeHome(uint8_t *buf, size_t bufLen)
     sbuf.ptr = buf;
     sbuf.end = buf + bufLen;
     mspWriteHomeState(&sbuf);
-    EXPECT_EQ(sbuf.ptr, buf + kPayloadBytes);
+    EXPECT_EQ(sbuf.ptr, buf + kGetHomePayloadBytes);
 }
 
 int32_t readI32LE(const uint8_t *p)
@@ -57,17 +65,76 @@ uint16_t readU16LE(const uint8_t *p)
     return (uint16_t)(p[0] | (p[1] << 8));
 }
 
-}  // namespace
+void writeU8(uint8_t *p, size_t &off, uint8_t v) { p[off++] = v; }
+void writeU16LE(uint8_t *p, size_t &off, uint16_t v)
+{
+    p[off++] = (uint8_t)(v & 0xff);
+    p[off++] = (uint8_t)((v >> 8) & 0xff);
+}
+void writeU32LE(uint8_t *p, size_t &off, uint32_t v)
+{
+    p[off++] = (uint8_t)(v & 0xff);
+    p[off++] = (uint8_t)((v >> 8) & 0xff);
+    p[off++] = (uint8_t)((v >> 16) & 0xff);
+    p[off++] = (uint8_t)((v >> 24) & 0xff);
+}
 
-TEST(MspExternalHomeUnitTest, GetHomeDefaultIsNoHome)
+struct ExternalHomePayload {
+    int32_t  lat = 407128456;
+    int32_t  lon = -740059821;
+    int32_t  altCm = 1234;
+    uint16_t donorPdop = 15;        // 1.5
+    uint8_t  donorSatCount = 12;
+    uint32_t captureTimestamp = 1700000000;
+    uint16_t coordId = 0xABCD;
+};
+
+// Build a 23-byte payload with a valid CRC16-CCITT trailer.
+size_t buildPayload(uint8_t *buf, const ExternalHomePayload &p, bool corruptCrc = false)
+{
+    size_t off = 0;
+    writeU32LE(buf, off, (uint32_t)p.lat);
+    writeU32LE(buf, off, (uint32_t)p.lon);
+    writeU32LE(buf, off, (uint32_t)p.altCm);
+    writeU16LE(buf, off, p.donorPdop);
+    writeU8(buf, off, p.donorSatCount);
+    writeU32LE(buf, off, p.captureTimestamp);
+    writeU16LE(buf, off, p.coordId);
+    const uint16_t crc = crc16_ccitt_update(0, buf, off);
+    writeU16LE(buf, off, corruptCrc ? (uint16_t)(crc ^ 0xffff) : crc);
+    EXPECT_EQ(off, (size_t)EXTERNAL_HOME_PAYLOAD_BYTES);
+    return off;
+}
+
+// Wrap a buffer in an sbuf_t and run the validator.
+externalHomeResult_e parse(const uint8_t *buf, size_t len, uint32_t now, bool armed, bool enabled)
+{
+    sbuf_t sbuf;
+    sbuf.ptr = (uint8_t *)buf;
+    sbuf.end = (uint8_t *)buf + len;
+    return processExternalHomeMessage(&sbuf, now, armed, enabled);
+}
+
+void resetHomeStateForTest()
 {
     GPS_home_llh.lat = 0;
     GPS_home_llh.lon = 0;
     GPS_home_llh.altCm = 0;
     gpsManualHomeState = MANUAL_HOME_STATE_NO_HOME;
     gpsManualHomeCoordId = 0;
+    DISABLE_STATE(GPS_FIX_HOME);
+}
 
-    uint8_t buf[kPayloadBytes] = {};
+constexpr uint32_t kNowSec = 1700001000; // 1000s after capture default
+
+}  // namespace
+
+// ---------- M1: MSP_GET_HOME serialization ----------
+
+TEST(MspExternalHomeUnitTest, GetHomeDefaultIsNoHome)
+{
+    resetHomeStateForTest();
+    uint8_t buf[kGetHomePayloadBytes] = {};
     serializeHome(buf, sizeof(buf));
 
     EXPECT_EQ(readI32LE(&buf[0]), 0);
@@ -79,14 +146,13 @@ TEST(MspExternalHomeUnitTest, GetHomeDefaultIsNoHome)
 
 TEST(MspExternalHomeUnitTest, GetHomeReportsProvisionalStateAndCoordId)
 {
-    // 40.7128456, -74.0059821, alt 1234cm
     GPS_home_llh.lat = 407128456;
     GPS_home_llh.lon = -740059821;
     GPS_home_llh.altCm = 1234;
     gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
     gpsManualHomeCoordId = 0xABCD;
 
-    uint8_t buf[kPayloadBytes] = {};
+    uint8_t buf[kGetHomePayloadBytes] = {};
     serializeHome(buf, sizeof(buf));
 
     EXPECT_EQ(readI32LE(&buf[0]), 407128456);
@@ -113,8 +179,234 @@ TEST(MspExternalHomeUnitTest, GetHomeRoundTripsAllStateValues)
 
     for (manualHomeState_e s : states) {
         gpsManualHomeState = s;
-        uint8_t buf[kPayloadBytes] = {};
+        uint8_t buf[kGetHomePayloadBytes] = {};
         serializeHome(buf, sizeof(buf));
         EXPECT_EQ(buf[12], s);
     }
+}
+
+// ---------- M3: MSP2_SET_EXTERNAL_HOME validation ----------
+
+TEST(MspSetExternalHomeUnitTest, HappyPathTransitionsToProvisional)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    EXPECT_EQ(GPS_home_llh.lat, p.lat);
+    EXPECT_EQ(GPS_home_llh.lon, p.lon);
+    EXPECT_EQ(GPS_home_llh.altCm, p.altCm);
+    EXPECT_EQ(gpsManualHomeCoordId, p.coordId);
+    EXPECT_TRUE(STATE(GPS_FIX_HOME));
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsTruncatedPayload)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES - 1] = {};
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_TRUNCATED);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+    EXPECT_FALSE(STATE(GPS_FIX_HOME));
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsBadCrc)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p, /*corruptCrc=*/true);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_CRC);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsZeroZeroCoord)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.lat = 0;
+    p.lon = 0;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_RANGE);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsOutOfRangeLat)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.lat = 1000000000;  // 100 deg, beyond 90 deg cap
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_RANGE);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsOutOfRangeLon)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.lon = -1900000000;  // -190 deg
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_RANGE);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsLowSatCount)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.donorSatCount = 9;  // min is 10
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_SATS);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsHighPdop)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.donorPdop = 21;  // max is 20 (PDOP 2.0)
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_PDOP);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsStaleCapture)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    // captureTimestamp default 1700000000; advance now by >24h
+    const uint32_t now = p.captureTimestamp + EXTERNAL_HOME_MAX_AGE_SECONDS + 1;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), now, false, true), EXTERNAL_HOME_ERR_STALE);
+}
+
+TEST(MspSetExternalHomeUnitTest, AcceptsCaptureExactlyAtAgeLimit)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    const uint32_t now = p.captureTimestamp + EXTERNAL_HOME_MAX_AGE_SECONDS;  // exactly at limit
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), now, false, true), EXTERNAL_HOME_OK);
+}
+
+TEST(MspSetExternalHomeUnitTest, SkipsAgeCheckWhenRtcUnset)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.captureTimestamp = 100;  // very old, but...
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), 0 /*RTC unset*/, false, true), EXTERNAL_HOME_OK);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsWhenArmed)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, /*armed=*/true, true), EXTERNAL_HOME_ERR_ARMED);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsWhenFeatureDisabled)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, /*enabled=*/false), EXTERNAL_HOME_ERR_DISABLED);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsWhenStateValidated)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_VALIDATED;
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.coordId = 0xBEEF;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_LOCKED);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+    EXPECT_NE(gpsManualHomeCoordId, 0xBEEF);  // unchanged
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsWhenStateRejected)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_REJECTED;
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_LOCKED);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+}
+
+TEST(MspSetExternalHomeUnitTest, RejectsWhenStateNormalHome)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_NORMAL;
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_ERR_LOCKED);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NORMAL);
+}
+
+TEST(MspSetExternalHomeUnitTest, IdempotentReSendInProvisional)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    // Rebuild a fresh sbuf and resend the same payload.
+    EXPECT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    EXPECT_EQ(gpsManualHomeCoordId, p.coordId);
+}
+
+TEST(MspSetExternalHomeUnitTest, NewCoordIdInProvisionalUpdates)
+{
+    resetHomeStateForTest();
+    uint8_t buf1[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p1;
+    buildPayload(buf1, p1);
+    ASSERT_EQ(parse(buf1, sizeof(buf1), kNowSec, false, true), EXTERNAL_HOME_OK);
+
+    uint8_t buf2[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p2;
+    p2.lat = 351234567;     // different field
+    p2.lon = -1180000000;
+    p2.coordId = 0x1234;
+    buildPayload(buf2, p2);
+
+    EXPECT_EQ(parse(buf2, sizeof(buf2), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    EXPECT_EQ(GPS_home_llh.lat, p2.lat);
+    EXPECT_EQ(GPS_home_llh.lon, p2.lon);
+    EXPECT_EQ(gpsManualHomeCoordId, p2.coordId);
 }

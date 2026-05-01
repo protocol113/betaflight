@@ -43,6 +43,7 @@
 #include "common/huffman.h"
 #include "common/maths.h"
 #include "common/streambuf.h"
+#include "common/time.h"
 #include "common/utils.h"
 
 #include "config/config.h"
@@ -2868,6 +2869,23 @@ static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t cmdMSP, 
         break;
 
 #ifdef USE_GPS
+    case MSP2_SET_EXTERNAL_HOME: {
+            rtcTime_t now;
+            const uint32_t nowSecs = rtcGet(&now) ? (uint32_t)rtcTimeGetSeconds(&now) : 0;
+            const bool fcArmed = ARMING_FLAG(ARMED);
+#ifdef USE_GPS_RESCUE
+            const bool featureEnabled = gpsRescueConfig()->allowExternalHome != 0;
+#else
+            const bool featureEnabled = false;
+#endif
+            // Sender confirms acceptance by following up with MSP2_GET_HOME and
+            // checking the returned coord_id; this command itself only acks/nacks.
+            if (processExternalHomeMessage(src, nowSecs, fcArmed, featureEnabled) != EXTERNAL_HOME_OK) {
+                return MSP_RESULT_ERROR;
+            }
+        }
+        break;
+
     case MSP_SET_GPS_CONFIG:
         gpsConfigMutable()->provider = sbufReadU8(src);
         gpsConfigMutable()->sbasMode = sbufReadU8(src);

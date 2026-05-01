@@ -34,6 +34,8 @@ PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
     .allowArmingWithoutFix = false,
     .allowExternalHome = false,
     .minSats = 8,
+    .maxHomeDistanceM = 1500,
+    .maxPdop = 25,
 );
 
 #endif // USE_GPS_RESCUE

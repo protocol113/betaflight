@@ -27,6 +27,8 @@ typedef struct gpsRescue_s {
     uint8_t  allowArmingWithoutFix;
     uint8_t  allowExternalHome;
     uint8_t  minSats;
+    uint16_t maxHomeDistanceM;
+    uint8_t  maxPdop;
 } gpsRescueConfig_t;
 
 PG_DECLARE(gpsRescueConfig_t, gpsRescueConfig);

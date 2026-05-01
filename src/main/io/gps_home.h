@@ -67,3 +67,28 @@ externalHomeResult_e processExternalHomeMessage(struct sbuf_s *src,
                                                 uint32_t nowEpochSeconds,
                                                 bool fcArmed,
                                                 bool featureEnabled);
+
+// Number of consecutive good fixes that must agree before the FC promotes
+// the manual home to VALIDATED or REJECTED.
+#define MANUAL_HOME_PROMOTION_FIX_COUNT 3
+
+typedef struct {
+    bool     fcHasFix;          // true if the FC currently has a 3D fix
+    uint8_t  fcSatCount;        // current sat count from gpsSol.numSat
+    uint16_t fcPdopX10;         // current PDOP * 10 (gpsSol.dop.pdop / 10)
+    uint32_t distanceToHomeCm;  // GPS_distanceToHomeCm (FC -> manual home)
+    uint8_t  minSats;           // gpsRescueConfig()->minSats
+    uint16_t maxHomeDistanceM;  // gpsRescueConfig()->maxHomeDistanceM
+    uint8_t  maxPdopX10;        // gpsRescueConfig()->maxPdop
+} manualHomePromotionInputs_t;
+
+// Drive the PROVISIONAL -> VALIDATED / REJECTED state machine using the
+// FC's own GPS data. Sticky once VALIDATED or REJECTED is reached. Counters
+// reset on a bad fix. Caller invokes this once per onGpsNewData() tick.
+void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in);
+
+// Reset the internal consecutive-fix counters. Call this when the manual
+// home itself is replaced (e.g. PROVISIONAL re-write with a new coord_id)
+// so the existing fix history doesn't carry over to a different home.
+void gpsManualHomePromotionReset(void);
+

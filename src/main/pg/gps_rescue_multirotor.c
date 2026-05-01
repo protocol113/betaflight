@@ -52,6 +52,8 @@ PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
 
     .allowArmingWithoutFix = false,
     .allowExternalHome = false,
+    .maxHomeDistanceM = 1500,
+    .maxPdop = 25,    // PDOP 2.5
     .sanityChecks = RESCUE_SANITY_FS_ONLY,
     .minSats = 8,
 

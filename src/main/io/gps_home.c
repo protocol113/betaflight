@@ -40,6 +40,51 @@
 manualHomeState_e gpsManualHomeState = MANUAL_HOME_STATE_NO_HOME;
 uint16_t gpsManualHomeCoordId = 0;
 
+static uint8_t promotionCloseCount = 0;
+static uint8_t promotionFarCount = 0;
+
+void gpsManualHomePromotionReset(void)
+{
+    promotionCloseCount = 0;
+    promotionFarCount = 0;
+}
+
+void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in)
+{
+    // Sticky terminal states; once promoted or rejected, the FC won't change
+    // its mind for the rest of the powered session.
+    if (gpsManualHomeState != MANUAL_HOME_STATE_PROVISIONAL) {
+        return;
+    }
+
+    const bool fixGood = in->fcHasFix
+                      && in->fcSatCount >= in->minSats
+                      && in->fcPdopX10 <= in->maxPdopX10;
+    if (!fixGood) {
+        gpsManualHomePromotionReset();
+        return;
+    }
+
+    const uint32_t maxHomeDistanceCm = (uint32_t)in->maxHomeDistanceM * 100U;
+    if (in->distanceToHomeCm <= maxHomeDistanceCm) {
+        promotionFarCount = 0;
+        if (promotionCloseCount < MANUAL_HOME_PROMOTION_FIX_COUNT) {
+            promotionCloseCount++;
+        }
+        if (promotionCloseCount >= MANUAL_HOME_PROMOTION_FIX_COUNT) {
+            gpsManualHomeState = MANUAL_HOME_STATE_VALIDATED;
+        }
+    } else {
+        promotionCloseCount = 0;
+        if (promotionFarCount < MANUAL_HOME_PROMOTION_FIX_COUNT) {
+            promotionFarCount++;
+        }
+        if (promotionFarCount >= MANUAL_HOME_PROMOTION_FIX_COUNT) {
+            gpsManualHomeState = MANUAL_HOME_STATE_REJECTED;
+        }
+    }
+}
+
 void mspWriteHomeState(sbuf_t *dst)
 {
     sbufWriteU32(dst, GPS_home_llh.lat);
@@ -115,6 +160,8 @@ externalHomeResult_e processExternalHomeMessage(sbuf_t *src,
     gpsManualHomeCoordId = coordId;
     gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
     ENABLE_STATE(GPS_FIX_HOME);
+    // Replacing the manual home invalidates any in-progress promotion vote.
+    gpsManualHomePromotionReset();
 
     return EXTERNAL_HOME_OK;
 }

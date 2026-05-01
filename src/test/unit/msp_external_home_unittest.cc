@@ -410,3 +410,228 @@ TEST(MspSetExternalHomeUnitTest, NewCoordIdInProvisionalUpdates)
     EXPECT_EQ(GPS_home_llh.lon, p2.lon);
     EXPECT_EQ(gpsManualHomeCoordId, p2.coordId);
 }
+
+// ---------- M4: First-fix promotion (PROVISIONAL -> VALIDATED / REJECTED) ----------
+
+namespace {
+
+manualHomePromotionInputs_t makeGoodFix(uint32_t distanceCm)
+{
+    manualHomePromotionInputs_t in = {};
+    in.fcHasFix = true;
+    in.fcSatCount = 12;
+    in.fcPdopX10 = 15;          // PDOP 1.5
+    in.distanceToHomeCm = distanceCm;
+    in.minSats = 8;
+    in.maxHomeDistanceM = 1500;
+    in.maxPdopX10 = 25;         // PDOP 2.5
+    return in;
+}
+
+void prePromote(uint32_t distanceCm, uint8_t ticks)
+{
+    auto in = makeGoodFix(distanceCm);
+    for (uint8_t i = 0; i < ticks; ++i) {
+        gpsManualHomePromotionTick(&in);
+    }
+}
+
+}  // namespace
+
+TEST(GpsManualHomePromotionTest, ThreeCloseFixesPromoteToValidated)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto in = makeGoodFix(80000);  // 800m, well under 1500m
+
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}
+
+TEST(GpsManualHomePromotionTest, ThreeFarFixesRejectHome)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto in = makeGoodFix(500000);  // 5000m, well over 1500m
+
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+}
+
+TEST(GpsManualHomePromotionTest, ExactlyAtMaxDistanceCounts)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto in = makeGoodFix(150000);  // exactly 1500m, treated as close
+
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}
+
+TEST(GpsManualHomePromotionTest, BadFixResetsCloseCounter)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto good = makeGoodFix(80000);
+    gpsManualHomePromotionTick(&good);
+    gpsManualHomePromotionTick(&good);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    auto bad = good;
+    bad.fcSatCount = 4;  // sat dip below minSats
+    gpsManualHomePromotionTick(&bad);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    // After the reset, two more close fixes shouldn't be enough.
+    gpsManualHomePromotionTick(&good);
+    gpsManualHomePromotionTick(&good);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    // Third good fix completes the new run.
+    gpsManualHomePromotionTick(&good);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}
+
+TEST(GpsManualHomePromotionTest, HighPdopBlocksPromotion)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto in = makeGoodFix(80000);
+    in.fcPdopX10 = 30;  // PDOP 3.0, above 2.5 cap
+
+    for (int i = 0; i < 5; ++i) {
+        gpsManualHomePromotionTick(&in);
+    }
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+}
+
+TEST(GpsManualHomePromotionTest, NoFixResetsCounters)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto good = makeGoodFix(80000);
+    gpsManualHomePromotionTick(&good);
+    gpsManualHomePromotionTick(&good);
+
+    auto noFix = good;
+    noFix.fcHasFix = false;
+    gpsManualHomePromotionTick(&noFix);
+
+    // Resume good fixes; need a fresh run of three.
+    gpsManualHomePromotionTick(&good);
+    gpsManualHomePromotionTick(&good);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&good);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}
+
+TEST(GpsManualHomePromotionTest, FlippingVerdictResetsRunningCount)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    auto close = makeGoodFix(80000);
+    auto far = makeGoodFix(500000);
+
+    gpsManualHomePromotionTick(&close);
+    gpsManualHomePromotionTick(&close);
+    gpsManualHomePromotionTick(&far);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    // far counter is at 1; need two more fars to reject.
+    gpsManualHomePromotionTick(&far);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&far);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+}
+
+TEST(GpsManualHomePromotionTest, ValidatedIsSticky)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+    prePromote(80000, 3);
+    ASSERT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+
+    auto far = makeGoodFix(500000);
+    for (int i = 0; i < 10; ++i) {
+        gpsManualHomePromotionTick(&far);
+    }
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}
+
+TEST(GpsManualHomePromotionTest, RejectedIsSticky)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+    prePromote(500000, 3);
+    ASSERT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+
+    auto close = makeGoodFix(80000);
+    for (int i = 0; i < 10; ++i) {
+        gpsManualHomePromotionTick(&close);
+    }
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+}
+
+TEST(GpsManualHomePromotionTest, NotPromotedFromNoHomeState)
+{
+    resetHomeStateForTest();
+    // state already MANUAL_HOME_STATE_NO_HOME
+    auto close = makeGoodFix(80000);
+    for (int i = 0; i < 10; ++i) {
+        gpsManualHomePromotionTick(&close);
+    }
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+}
+
+TEST(GpsManualHomePromotionTest, AcceptingNewExternalHomeResetsPromotionCounters)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    // Build up two close votes
+    auto close = makeGoodFix(80000);
+    gpsManualHomePromotionTick(&close);
+    gpsManualHomePromotionTick(&close);
+
+    // A new external home arrives -- counters must reset, otherwise the next
+    // tick after the new home would promote it without three independent fixes.
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    p.coordId = 0x9999;
+    buildPayload(buf, p);
+    ASSERT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    ASSERT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+
+    gpsManualHomePromotionTick(&close);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&close);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_PROVISIONAL);
+    gpsManualHomePromotionTick(&close);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+}

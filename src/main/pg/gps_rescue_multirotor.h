@@ -39,6 +39,8 @@ typedef struct gpsRescue_s {
     uint8_t  sanityChecks;
     uint8_t  allowArmingWithoutFix;
     uint8_t  allowExternalHome;
+    uint16_t maxHomeDistanceM;       // FC fix beyond this (in meters) from manual home -> REJECTED
+    uint8_t  maxPdop;                // PDOP * 10; FC fix above this is not eligible for promotion
     uint8_t  useMag;
     uint8_t  altitudeMode;
     uint16_t ascendRate;

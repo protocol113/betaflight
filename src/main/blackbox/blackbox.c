@@ -1839,6 +1839,8 @@ static bool blackboxWriteSysinfo(void)
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_MIN_SATS, "%d",        gpsRescueConfig()->minSats);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_ALLOW_ARMING_WITHOUT_FIX, "%d", gpsRescueConfig()->allowArmingWithoutFix);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_ALLOW_EXTERNAL_HOME, "%d", gpsRescueConfig()->allowExternalHome);
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_MAX_HOME_DISTANCE, "%d", gpsRescueConfig()->maxHomeDistanceM);
+        BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_MAX_PDOP, "%d", gpsRescueConfig()->maxPdop);
 
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_VELOCITY_P, "%d",      gpsRescueConfig()->velP);
         BLACKBOX_PRINT_HEADER_LINE(PARAM_NAME_GPS_RESCUE_VELOCITY_I, "%d",      gpsRescueConfig()->velI);

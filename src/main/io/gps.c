@@ -47,6 +47,7 @@
 #endif
 
 #include "io/gps.h"
+#include "io/gps_home.h"
 #include "io/gps_virtual.h"
 
 #include "io/serial.h"
@@ -2688,6 +2689,22 @@ void onGpsNewData(void)
     if (ARMING_FLAG(ARMED)) {
         GPS_calculateDistanceFlown(false);
     }
+
+#ifdef USE_GPS_RESCUE
+    {
+        const manualHomePromotionInputs_t promo = {
+            .fcHasFix = STATE(GPS_FIX) != 0,
+            .fcSatCount = gpsSol.numSat,
+            // gpsSol.dop.pdop is PDOP * 100; gpsRescueConfig()->maxPdop is PDOP * 10.
+            .fcPdopX10 = (uint16_t)(gpsSol.dop.pdop / 10),
+            .distanceToHomeCm = GPS_distanceToHomeCm,
+            .minSats = gpsRescueConfig()->minSats,
+            .maxHomeDistanceM = gpsRescueConfig()->maxHomeDistanceM,
+            .maxPdopX10 = gpsRescueConfig()->maxPdop,
+        };
+        gpsManualHomePromotionTick(&promo);
+    }
+#endif
 
 #ifdef USE_GPS_LAP_TIMER
     gpsLapTimerNewGpsData();

@@ -159,11 +159,16 @@ encoding_unittest_SRC := \
 
 flight_failsafe_unittest_SRC := \
 		$(USER_DIR)/common/bitarray.c \
+		$(USER_DIR)/common/crc.c \
+		$(USER_DIR)/common/streambuf.c \
 		$(USER_DIR)/fc/rc_modes.c \
 		$(USER_DIR)/fc/runtime_config.c \
-		$(USER_DIR)/flight/failsafe.c
+		$(USER_DIR)/flight/failsafe.c \
+		$(USER_DIR)/io/gps_home.c \
+		$(USER_DIR)/pg/gps_rescue_multirotor.c
 
 flight_failsafe_unittest_DEFINES := \
+		USE_GPS= \
 		USE_GPS_RESCUE=
 
 

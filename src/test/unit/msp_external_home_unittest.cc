@@ -608,6 +608,101 @@ TEST(GpsManualHomePromotionTest, NotPromotedFromNoHomeState)
     EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
 }
 
+// ---------- M5: rescue activation gate ----------
+
+namespace {
+
+rescueGateInputs_t gateFor(manualHomeState_e s, bool magOk, uint32_t distCm)
+{
+    rescueGateInputs_t in = {};
+    in.state = s;
+    in.magHealthy = magOk;
+    in.distanceFlownCm = distCm;
+    in.yawConvergeDistCm = GPS_RESCUE_YAW_CONVERGE_DIST_CM;
+    return in;
+}
+
+}  // namespace
+
+TEST(GpsRescueGateTest, NoHomeAllowsRescueDispatch)
+{
+    // NO_HOME means no manual home was loaded; the existing FC rescue path
+    // gates on STATE(GPS_FIX_HOME) downstream. The new gate should not
+    // override that decision either way.
+    auto in = gateFor(MANUAL_HOME_STATE_NO_HOME, false, 0);
+    EXPECT_TRUE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, NormalHomeAllowsRescueDispatch)
+{
+    // FC's own GPS produced the home -- existing rescue, no new gating.
+    auto in = gateFor(MANUAL_HOME_STATE_NORMAL, false, 0);
+    EXPECT_TRUE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, ProvisionalAlwaysDrops)
+{
+    // Rule #6: rescue is inert until the FC has its own fix and validates
+    // the manual home. Drop on failsafe instead of flying somewhere unsafe.
+    auto in1 = gateFor(MANUAL_HOME_STATE_PROVISIONAL, true, 100000);
+    EXPECT_FALSE(gpsRescueShouldFire(&in1));
+
+    auto in2 = gateFor(MANUAL_HOME_STATE_PROVISIONAL, false, 0);
+    EXPECT_FALSE(gpsRescueShouldFire(&in2));
+}
+
+TEST(GpsRescueGateTest, RejectedAlwaysDrops)
+{
+    auto in1 = gateFor(MANUAL_HOME_STATE_REJECTED, true, 100000);
+    EXPECT_FALSE(gpsRescueShouldFire(&in1));
+
+    auto in2 = gateFor(MANUAL_HOME_STATE_REJECTED, false, 0);
+    EXPECT_FALSE(gpsRescueShouldFire(&in2));
+}
+
+TEST(GpsRescueGateTest, ValidatedFiresWithMag)
+{
+    // Magnetometer healthy -> yaw is trustable immediately, no distance
+    // requirement.
+    auto in = gateFor(MANUAL_HOME_STATE_VALIDATED, true, 0);
+    EXPECT_TRUE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, ValidatedDropsBelowYawConvergenceWithoutMag)
+{
+    // No mag, drone hasn't moved enough for COG-derived yaw to settle.
+    auto in = gateFor(MANUAL_HOME_STATE_VALIDATED, false, 1000);  // 10m
+    EXPECT_FALSE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, ValidatedFiresAtYawConvergenceWithoutMag)
+{
+    // Exactly at threshold -> COG yaw considered converged.
+    auto in = gateFor(MANUAL_HOME_STATE_VALIDATED, false, GPS_RESCUE_YAW_CONVERGE_DIST_CM);
+    EXPECT_TRUE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, ValidatedFiresAboveYawConvergenceWithoutMag)
+{
+    auto in = gateFor(MANUAL_HOME_STATE_VALIDATED, false, GPS_RESCUE_YAW_CONVERGE_DIST_CM + 1);
+    EXPECT_TRUE(gpsRescueShouldFire(&in));
+}
+
+TEST(GpsRescueGateTest, AcceptingExternalHomeReturnsToProvisionalGate)
+{
+    // After a fresh external write, gate must drop until promotion completes.
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+    ASSERT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+
+    auto in = gateFor(gpsManualHomeState, true, 100000);  // magnetometer healthy and lots of distance
+    EXPECT_FALSE(gpsRescueShouldFire(&in)) << "Fresh PROVISIONAL must drop on failsafe even with good mag";
+}
+
+// ---------- M4: extra promotion regression ----------
+
 TEST(GpsManualHomePromotionTest, AcceptingNewExternalHomeResetsPromotionCounters)
 {
     resetHomeStateForTest();

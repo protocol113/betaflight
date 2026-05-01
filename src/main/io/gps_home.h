@@ -92,3 +92,28 @@ void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in);
 // so the existing fix history doesn't carry over to a different home.
 void gpsManualHomePromotionReset(void);
 
+// Distance (cm) the FC must have flown for COG-derived yaw to be trusted
+// when no magnetometer is available. Below this threshold the rescue gate
+// rejects activation in MANUAL_HOME_STATE_VALIDATED to avoid wrong-direction
+// flight in the first few seconds.
+#define GPS_RESCUE_YAW_CONVERGE_DIST_CM 3000U  // 30 metres
+
+typedef struct {
+    manualHomeState_e state;
+    bool     magHealthy;        // SENSOR_MAG present, useMag set, !magForceDisable
+    uint32_t distanceFlownCm;   // GPS_distanceFlownInCm
+    uint32_t yawConvergeDistCm; // GPS_RESCUE_YAW_CONVERGE_DIST_CM (parameter for testability)
+} rescueGateInputs_t;
+
+// Returns true iff GPS Rescue should activate on failsafe given the current
+// manual-home state and yaw situation. The caller (failsafe.c) falls through
+// to a drop when this returns false.
+//   NO_HOME / NORMAL  -> allow (existing rescue path; STATE(GPS_FIX_HOME) gates
+//                       the no-home case downstream).
+//   PROVISIONAL       -> drop (rule #6: rescue is inert until promoted).
+//   REJECTED          -> drop (manual home was disagreed with by FC's own fix).
+//   VALIDATED         -> allow iff yaw is trustable: magHealthy, OR the FC has
+//                       flown far enough for COG-derived yaw to converge.
+bool gpsRescueShouldFire(const rescueGateInputs_t *in);
+
+

@@ -49,6 +49,21 @@ void gpsManualHomePromotionReset(void)
     promotionFarCount = 0;
 }
 
+bool gpsRescueShouldFire(const rescueGateInputs_t *in)
+{
+    switch (in->state) {
+    case MANUAL_HOME_STATE_NO_HOME:
+    case MANUAL_HOME_STATE_NORMAL:
+        return true;
+    case MANUAL_HOME_STATE_PROVISIONAL:
+    case MANUAL_HOME_STATE_REJECTED:
+        return false;
+    case MANUAL_HOME_STATE_VALIDATED:
+        return in->magHealthy || in->distanceFlownCm >= in->yawConvergeDistCm;
+    }
+    return false;
+}
+
 void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in)
 {
     // Sticky terminal states; once promoted or rejected, the FC won't change

@@ -43,6 +43,13 @@
 #include "flight/failsafe.h"
 
 #include "io/beeper.h"
+#ifdef USE_GPS_RESCUE
+#include "flight/gps_rescue.h"
+#include "io/gps.h"
+#include "io/gps_home.h"
+#include "pg/gps_rescue.h"
+#include "sensors/sensors.h"
+#endif
 
 #include "rx/rx.h"
 
@@ -329,10 +336,35 @@ FAST_CODE_NOINLINE void failsafeUpdateState(void)
                             //  go directly to FAILSAFE_LANDED
                             break;
 #ifdef USE_GPS_RESCUE
-                        case FAILSAFE_PROCEDURE_GPS_RESCUE:
-                            ENABLE_FLIGHT_MODE(GPS_RESCUE_MODE);
-                            failsafeState.phase = FAILSAFE_GPS_RESCUE;
+                        case FAILSAFE_PROCEDURE_GPS_RESCUE: {
+#ifndef USE_WING
+                            const rescueGateInputs_t gate = {
+                                .state = gpsManualHomeState,
+                                // useMag is multirotor-only; wings don't have
+                                // the field (and don't use mag-based yaw the
+                                // same way), so this gate is multirotor-only.
+                                .magHealthy = sensors(SENSOR_MAG)
+                                              && gpsRescueConfig()->useMag,
+                                .distanceFlownCm = GPS_distanceFlownInCm,
+                                .yawConvergeDistCm = GPS_RESCUE_YAW_CONVERGE_DIST_CM,
+                            };
+                            const bool fireRescue = gpsRescueShouldFire(&gate);
+#else
+                            const bool fireRescue = true;  // wing path: existing behavior
+#endif
+                            if (fireRescue) {
+                                ENABLE_FLIGHT_MODE(GPS_RESCUE_MODE);
+                                failsafeState.phase = FAILSAFE_GPS_RESCUE;
+                            } else {
+                                // Drop instead: rule #6 -- never fly home on
+                                // an unverified manual home or pre-converged
+                                // yaw. Better to fall than to fly the wrong
+                                // direction.
+                                ENABLE_FLIGHT_MODE(FAILSAFE_MODE);
+                                failsafeState.phase = FAILSAFE_LANDED;
+                            }
                             break;
+                        }
 #endif
                     }
                     if (failsafeState.boxFailsafeSwitchWasOn) {

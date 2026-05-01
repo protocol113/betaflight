@@ -40,6 +40,7 @@ extern "C" {
     #include "flight/failsafe.h"
 
     #include "io/beeper.h"
+    #include "io/gps.h"
 
     #include "drivers/io.h"
     #include "rx/rx.h"
@@ -774,4 +775,11 @@ bool usbCableIsInserted(void)
 {
     return false;
 }
+
+// Manual-home gating stubs. The existing flight_failsafe tests don't exercise
+// the M5 rescue-gate path; defaults here keep state at NO_HOME so the gate
+// returns true and existing assertions about FAILSAFE_GPS_RESCUE remain valid.
+// sensors() is provided by fc/runtime_config.c (linked in this test).
+gpsLocation_t GPS_home_llh = {};
+uint32_t GPS_distanceFlownInCm = 0;
 }

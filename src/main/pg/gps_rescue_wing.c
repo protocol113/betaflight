@@ -32,6 +32,7 @@ PG_REGISTER_WITH_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig, PG_GPS_RESCU
 
 PG_RESET_TEMPLATE(gpsRescueConfig_t, gpsRescueConfig,
     .allowArmingWithoutFix = false,
+    .allowExternalHome = false,
     .minSats = 8,
 );
 

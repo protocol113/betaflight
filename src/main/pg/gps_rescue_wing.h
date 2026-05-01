@@ -25,6 +25,7 @@
 
 typedef struct gpsRescue_s {
     uint8_t  allowArmingWithoutFix;
+    uint8_t  allowExternalHome;
     uint8_t  minSats;
 } gpsRescueConfig_t;
 

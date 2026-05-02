@@ -873,6 +873,127 @@ TEST(ArmingPreventionTest, GPSRescueSwitchPreventsArm)
     EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXGPSRESCUE));
 }
 
+// ---------- M6: arming-status integration with manual home + new flags ----------
+//
+// Regression guards. The plan deliberately does not add a new bypass for
+// "manual home loaded -> permit arm"; the existing
+// gps_rescue_allow_arming_without_fix knob is what unlocks arming when the FC
+// has no own fix. The new gps_rescue_allow_external_home flag must not
+// accidentally introduce a second arming bypass, and the new
+// gps_rescue_max_home_distance / gps_rescue_max_pdop fields must not change
+// arming behavior at all.
+
+TEST(ArmingPreventionTest, M6_AllowArmingWithoutFixPermitsArmEvenWithoutFix)
+{
+    simulationFeatureFlags = 0;
+    simulationTime = 0;
+    gyroCalibDone = true;
+
+    modeActivationConditionsMutable(0)->auxChannelIndex = 0;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    modeActivationConditionsMutable(1)->auxChannelIndex = 1;
+    modeActivationConditionsMutable(1)->modeId = BOXGPSRESCUE;
+    modeActivationConditionsMutable(1)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(1)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    rcControlsInit();
+    rxConfigMutable()->mincheck = 1050;
+
+    rcData[THROTTLE] = 1000;
+    rcData[AUX1] = 1000;
+    rcData[AUX2] = 1000;
+    mockIsUpright = true;
+
+    // Pilot opts in to arming without an FC fix.
+    gpsRescueConfigMutable()->allowArmingWithoutFix = true;
+    DISABLE_STATE(GPS_FIX);
+
+    updateActivatedModes();
+    updateArmingStatus();
+
+    EXPECT_FALSE(isArmingDisabled());
+    EXPECT_EQ(0, getArmingDisableFlags() & ARMING_DISABLED_GPS);
+}
+
+TEST(ArmingPreventionTest, M6_NewExternalHomeFlagsDoNotBypassArming)
+{
+    simulationFeatureFlags = 0;
+    simulationTime = 0;
+    gyroCalibDone = true;
+    // Tests share global state; earlier tests in this suite arm successfully
+    // and leave WAS_EVER_ARMED set, which would silently bypass the
+    // ARMING_DISABLED_GPS gate we are exercising here.
+    DISABLE_ARMING_FLAG(WAS_EVER_ARMED);
+
+    modeActivationConditionsMutable(0)->auxChannelIndex = 0;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    modeActivationConditionsMutable(1)->auxChannelIndex = 1;
+    modeActivationConditionsMutable(1)->modeId = BOXGPSRESCUE;
+    modeActivationConditionsMutable(1)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(1)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    rcControlsInit();
+    rxConfigMutable()->mincheck = 1050;
+
+    rcData[THROTTLE] = 1000;
+    rcData[AUX1] = 1000;
+    rcData[AUX2] = 1000;
+    mockIsUpright = true;
+
+    // Turn on the new external-home flag and set the new fields, but leave
+    // allowArmingWithoutFix off and the FC fix unset. Arming must still be
+    // refused -- the new flags are not a second bypass for the no-fix gate.
+    gpsRescueConfigMutable()->allowArmingWithoutFix = false;
+    gpsRescueConfigMutable()->allowExternalHome = true;
+    gpsRescueConfigMutable()->maxHomeDistanceM = 1500;
+    gpsRescueConfigMutable()->maxPdop = 25;
+    DISABLE_STATE(GPS_FIX);
+
+    updateActivatedModes();
+    updateArmingStatus();
+
+    EXPECT_TRUE(isArmingDisabled());
+    EXPECT_NE(0, getArmingDisableFlags() & ARMING_DISABLED_GPS);
+}
+
+TEST(ArmingPreventionTest, M6_AllowExternalHomeOffDoesNotConstrainExistingArmFlow)
+{
+    simulationFeatureFlags = 0;
+    simulationTime = 0;
+    gyroCalibDone = true;
+
+    modeActivationConditionsMutable(0)->auxChannelIndex = 0;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    modeActivationConditionsMutable(1)->auxChannelIndex = 1;
+    modeActivationConditionsMutable(1)->modeId = BOXGPSRESCUE;
+    modeActivationConditionsMutable(1)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(1)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    rcControlsInit();
+    rxConfigMutable()->mincheck = 1050;
+
+    rcData[THROTTLE] = 1000;
+    rcData[AUX1] = 1000;
+    rcData[AUX2] = 1000;
+    mockIsUpright = true;
+
+    // Pilot has allowArmingWithoutFix on but the new external-home flag is
+    // off. Arming must still be permitted -- existing semantics, the new flag
+    // does not introduce an additional gate.
+    gpsRescueConfigMutable()->allowArmingWithoutFix = true;
+    gpsRescueConfigMutable()->allowExternalHome = false;
+    DISABLE_STATE(GPS_FIX);
+
+    updateActivatedModes();
+    updateArmingStatus();
+
+    EXPECT_FALSE(isArmingDisabled());
+    EXPECT_EQ(0, getArmingDisableFlags() & ARMING_DISABLED_GPS);
+}
+
 TEST(ArmingPreventionTest, ParalyzeOnAtBoot)
 {
     // given

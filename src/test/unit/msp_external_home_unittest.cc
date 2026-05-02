@@ -123,6 +123,9 @@ void resetHomeStateForTest()
     gpsManualHomeState = MANUAL_HOME_STATE_NO_HOME;
     gpsManualHomeCoordId = 0;
     DISABLE_STATE(GPS_FIX_HOME);
+    for (size_t i = 0; i < 5; ++i) {
+        gpsManualHomeTransitionCount[i] = 0;
+    }
 }
 
 constexpr uint32_t kNowSec = 1700001000; // 1000s after capture default
@@ -606,6 +609,79 @@ TEST(GpsManualHomePromotionTest, NotPromotedFromNoHomeState)
         gpsManualHomePromotionTick(&close);
     }
     EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_NO_HOME);
+}
+
+// ---------- M8: transition events (beeper / blackbox surface) ----------
+
+TEST(GpsManualHomeTransitionsTest, AcceptingExternalHomeFiresProvisionalEvent)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+    ASSERT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_PROVISIONAL], 1);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_VALIDATED], 0);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_REJECTED], 0);
+}
+
+TEST(GpsManualHomeTransitionsTest, IdempotentReSendDoesNotReFire)
+{
+    resetHomeStateForTest();
+    uint8_t buf[EXTERNAL_HOME_PAYLOAD_BYTES];
+    ExternalHomePayload p;
+    buildPayload(buf, p);
+    ASSERT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    ASSERT_EQ(parse(buf, sizeof(buf), kNowSec, false, true), EXTERNAL_HOME_OK);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_PROVISIONAL], 1)
+        << "Re-sending the same coord while already PROVISIONAL must not re-beep";
+}
+
+TEST(GpsManualHomeTransitionsTest, PromotionFiresValidatedEventOnce)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    manualHomePromotionInputs_t in = {};
+    in.fcHasFix = true;
+    in.fcSatCount = 12;
+    in.fcPdopX10 = 15;
+    in.distanceToHomeCm = 80000;
+    in.minSats = 8;
+    in.maxHomeDistanceM = 1500;
+    in.maxPdopX10 = 25;
+
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_VALIDATED);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_VALIDATED], 1);
+    // Stickiness shouldn't double-count.
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_VALIDATED], 1);
+}
+
+TEST(GpsManualHomeTransitionsTest, RejectionFiresRejectedEventOnce)
+{
+    resetHomeStateForTest();
+    gpsManualHomeState = MANUAL_HOME_STATE_PROVISIONAL;
+    gpsManualHomePromotionReset();
+
+    manualHomePromotionInputs_t in = {};
+    in.fcHasFix = true;
+    in.fcSatCount = 12;
+    in.fcPdopX10 = 15;
+    in.distanceToHomeCm = 500000;  // far
+    in.minSats = 8;
+    in.maxHomeDistanceM = 1500;
+    in.maxPdopX10 = 25;
+
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    gpsManualHomePromotionTick(&in);
+    EXPECT_EQ(gpsManualHomeState, MANUAL_HOME_STATE_REJECTED);
+    EXPECT_EQ(gpsManualHomeTransitionCount[MANUAL_HOME_STATE_REJECTED], 1);
 }
 
 // ---------- M5: rescue activation gate ----------

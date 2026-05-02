@@ -57,6 +57,10 @@ typedef enum {
 extern manualHomeState_e gpsManualHomeState;
 extern uint16_t gpsManualHomeCoordId;
 
+// Transition counters indexed by destination state. Visible to tests for
+// asserting that beeper/blackbox events fired the expected number of times.
+extern uint16_t gpsManualHomeTransitionCount[5];
+
 void mspWriteHomeState(struct sbuf_s *dst);
 
 // Validates and applies an MSP2_SET_EXTERNAL_HOME payload. On EXTERNAL_HOME_OK

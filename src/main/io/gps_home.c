@@ -30,8 +30,40 @@
 
 #include "fc/runtime_config.h"
 
+#include "io/beeper.h"
 #include "io/gps.h"
 #include "io/gps_home.h"
+
+// Beep counts encode the transition so a blind pilot can hear what happened.
+// Kept distinct from the existing arming / GPS-fix beep cadences.
+#define BEEPS_MANUAL_HOME_PROVISIONAL 1
+#define BEEPS_MANUAL_HOME_VALIDATED   2
+#define BEEPS_MANUAL_HOME_REJECTED    4
+
+// Test hook: counts each transition by destination state. Tests can read
+// these without linking the real beeper subsystem; production code ignores
+// them. They are not gated by USE_GPS because that's the only context this
+// file is compiled in.
+uint16_t gpsManualHomeTransitionCount[5] = {0, 0, 0, 0, 0};
+
+static void announceTransition(manualHomeState_e to)
+{
+    gpsManualHomeTransitionCount[to]++;
+    switch (to) {
+    case MANUAL_HOME_STATE_PROVISIONAL:
+        beeperConfirmationBeeps(BEEPS_MANUAL_HOME_PROVISIONAL);
+        break;
+    case MANUAL_HOME_STATE_VALIDATED:
+        beeperConfirmationBeeps(BEEPS_MANUAL_HOME_VALIDATED);
+        break;
+    case MANUAL_HOME_STATE_REJECTED:
+        beeperConfirmationBeeps(BEEPS_MANUAL_HOME_REJECTED);
+        break;
+    case MANUAL_HOME_STATE_NO_HOME:
+    case MANUAL_HOME_STATE_NORMAL:
+        break;
+    }
+}
 
 #define EXTERNAL_HOME_LAT_LIMIT    900000000   // 90 degrees * 1e7
 #define EXTERNAL_HOME_LON_LIMIT    1800000000  // 180 degrees * 1e7
@@ -88,6 +120,7 @@ void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in)
         }
         if (promotionCloseCount >= MANUAL_HOME_PROMOTION_FIX_COUNT) {
             gpsManualHomeState = MANUAL_HOME_STATE_VALIDATED;
+            announceTransition(MANUAL_HOME_STATE_VALIDATED);
         }
     } else {
         promotionCloseCount = 0;
@@ -96,6 +129,7 @@ void gpsManualHomePromotionTick(const manualHomePromotionInputs_t *in)
         }
         if (promotionFarCount >= MANUAL_HOME_PROMOTION_FIX_COUNT) {
             gpsManualHomeState = MANUAL_HOME_STATE_REJECTED;
+            announceTransition(MANUAL_HOME_STATE_REJECTED);
         }
     }
 }
@@ -169,6 +203,7 @@ externalHomeResult_e processExternalHomeMessage(sbuf_t *src,
         return EXTERNAL_HOME_ERR_LOCKED;
     }
 
+    const bool wasAlreadyProvisional = (gpsManualHomeState == MANUAL_HOME_STATE_PROVISIONAL);
     GPS_home_llh.lat = lat;
     GPS_home_llh.lon = lon;
     GPS_home_llh.altCm = altCm;
@@ -177,6 +212,11 @@ externalHomeResult_e processExternalHomeMessage(sbuf_t *src,
     ENABLE_STATE(GPS_FIX_HOME);
     // Replacing the manual home invalidates any in-progress promotion vote.
     gpsManualHomePromotionReset();
+    // Announce only on a NO_HOME -> PROVISIONAL transition. An idempotent
+    // re-write while already PROVISIONAL stays silent.
+    if (!wasAlreadyProvisional) {
+        announceTransition(MANUAL_HOME_STATE_PROVISIONAL);
+    }
 
     return EXTERNAL_HOME_OK;
 }

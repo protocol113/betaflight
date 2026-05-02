@@ -2703,6 +2703,15 @@ void onGpsNewData(void)
             .maxPdopX10 = gpsRescueConfig()->maxPdop,
         };
         gpsManualHomePromotionTick(&promo);
+
+        DEBUG_SET(DEBUG_MANUAL_HOME, 0, (int16_t)gpsManualHomeState);
+        DEBUG_SET(DEBUG_MANUAL_HOME, 1, (int16_t)gpsManualHomeCoordId);
+        DEBUG_SET(DEBUG_MANUAL_HOME, 2, (int16_t)(GPS_distanceToHomeCm / 100));
+        DEBUG_SET(DEBUG_MANUAL_HOME, 3, (int16_t)(
+            gpsManualHomeTransitionCount[MANUAL_HOME_STATE_PROVISIONAL]
+            + gpsManualHomeTransitionCount[MANUAL_HOME_STATE_VALIDATED]
+            + gpsManualHomeTransitionCount[MANUAL_HOME_STATE_REJECTED]
+        ));
     }
 #endif
 

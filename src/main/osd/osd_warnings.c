@@ -47,6 +47,13 @@
 
 #include "flight/failsafe.h"
 #include "flight/gps_rescue.h"
+
+#ifdef USE_GPS_RESCUE
+#include "io/gps.h"
+#include "io/gps_home.h"
+#include "pg/gps_rescue.h"
+#include "sensors/sensors.h"
+#endif
 #include "flight/imu.h"
 #include "flight/mixer.h"
 #include "flight/mixer_init.h"
@@ -366,6 +373,40 @@ void renderOsdWarning(char *warningText, bool *blinking, uint8_t *displayAttr)
             return;
         }
     }
+
+#ifndef USE_WING
+    // Pilot-facing visibility for the manual-home flow. While disarmed (and
+    // also briefly after arm) show the loaded coord_id so the pilot can
+    // eyeball-confirm against the donor / radio screen. Once armed and in
+    // VALIDATED state, warn if yaw isn't yet trustable -- in that situation
+    // the rescue gate would drop on failsafe (see M5).
+    if (osdWarnGetState(OSD_WARNING_MANUAL_HOME) &&
+        gpsManualHomeState != MANUAL_HOME_STATE_NO_HOME &&
+        gpsManualHomeState != MANUAL_HOME_STATE_NORMAL) {
+        const char *tag = (gpsManualHomeState == MANUAL_HOME_STATE_VALIDATED) ? "OK"
+                        : (gpsManualHomeState == MANUAL_HOME_STATE_REJECTED)  ? "REJ"
+                        :                                                       "EXT";
+        tfp_sprintf(warningText, "HOME %s %04X", tag, gpsManualHomeCoordId);
+        *displayAttr = (gpsManualHomeState == MANUAL_HOME_STATE_VALIDATED)
+                       ? DISPLAYPORT_SEVERITY_NORMAL
+                       : DISPLAYPORT_SEVERITY_INFO;
+        *blinking = (gpsManualHomeState == MANUAL_HOME_STATE_REJECTED);
+        return;
+    }
+
+    if (osdWarnGetState(OSD_WARNING_YAW_NOT_READY) &&
+        ARMING_FLAG(ARMED) &&
+        gpsRescueIsConfigured() &&
+        gpsManualHomeState == MANUAL_HOME_STATE_VALIDATED) {
+        const bool magOk = sensors(SENSOR_MAG) && gpsRescueConfig()->useMag;
+        if (!magOk && GPS_distanceFlownInCm < GPS_RESCUE_YAW_CONVERGE_DIST_CM) {
+            tfp_sprintf(warningText, "YAW NOT RDY");
+            *displayAttr = DISPLAYPORT_SEVERITY_WARNING;
+            *blinking = true;
+            return;
+        }
+    }
+#endif // !USE_WING
 
 #endif // USE_GPS_RESCUE
 

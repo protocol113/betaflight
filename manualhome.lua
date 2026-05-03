@@ -159,19 +159,33 @@ local function buildSetHomePayload(c)
 end
 
 local function parseRawGpsResponse(d)
-  if #d < 16 then return nil end
-  -- MSP_RAW_GPS layout: fix(1), numSat(1), lat(4), lon(4), alt(2), spd(2), course(2), pdop(2)
+  if #d < 18 then return nil, "short_resp:" .. #d end
+  -- MSP_RAW_GPS layout (1-indexed in Lua):
+  --   [1]    fix (0/1)
+  --   [2]    numSat
+  --   [3..6] lat (int32, deg * 1e7)
+  --   [7..10] lon (int32, deg * 1e7)
+  --   [11..12] alt (uint16, metres)
+  --   [13..14] groundSpeed
+  --   [15..16] groundCourse
+  --   [17..18] PDOP (uint16, PDOP * 100 -- documented in io/gps.h)
   if d[1] == 0 then return nil, "no_fix" end
   local sats = d[2]
   if sats < 10 then return nil, "low_sats:" .. sats end
-  local pdop = readU16(d, 17)         -- 1-indexed: byte 17-18
-  if pdop > 20 then return nil, "bad_pdop:" .. pdop end
+  -- Convert PDOP * 100 (MSP_RAW_GPS encoding) to PDOP * 10
+  -- (MSP2_SET_EXTERNAL_HOME encoding) by dividing. The FC validator
+  -- caps donor_pdop at 20 (PDOP 2.0), so reject here too.
+  local pdop_x100 = readU16(d, 17)
+  local pdop_x10  = math.floor(pdop_x100 / 10)
+  if pdop_x10 > 20 then
+    return nil, string.format("bad_pdop %.2f", pdop_x100 / 100)
+  end
   return {
     lat       = readI32(d, 3),
     lon       = readI32(d, 7),
     altCm     = readU16(d, 11) * 100, -- alt in m -> cm
     sats      = sats,
-    pdop_x10  = pdop,
+    pdop_x10  = pdop_x10,
     captureTs = getRtcTime(),
     coordId   = coordIdFor(readI32(d, 3), readI32(d, 7)),
   }

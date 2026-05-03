@@ -92,50 +92,53 @@ local CRSF_FRAMETYPE_MSP_RESP = 0x7B
 local CRSF_ADDR_FC            = 0xC8
 local CRSF_ADDR_RADIO         = 0xEA
 
--- crc8 dvb-s2 (poly 0xD5) for the CRSF MSP V2 trailer
-local function crc8_dvbs2(buf, start, finish)
-  local crc = 0
-  for i = start, finish do
-    crc = bit32.bxor(crc, buf[i])
-    for _ = 1, 8 do
-      if bit32.band(crc, 0x80) ~= 0 then
-        crc = bit32.band(bit32.bxor(bit32.lshift(crc, 1), 0xD5), 0xFF)
-      else
-        crc = bit32.band(bit32.lshift(crc, 1), 0xFF)
-      end
-    end
-  end
-  return crc
-end
+-- MSP-over-telemetry status byte for a single-fragment V2 frame.
+-- See src/main/telemetry/msp_shared.c on the FC side:
+--   bits 0-3 = sequence (0 for first/only)
+--   bit 4    = MSP_STATUS_START_MASK (must be set on first fragment)
+--   bits 5-6 = MSP version (2 = MSP V2)
+--   bit 7    = error
+local MSP_STATUS_V2_START = 0x50
 
 -- Send an MSP V2 request (or set, if payload is non-empty).
 -- function_id is the MSP V2 opcode (e.g. 0x300F).
+-- The CRSF transport on the FC side computes its own outer frame CRC,
+-- and the MSP-over-telemetry envelope does NOT include an inner V2 CRC8
+-- (unlike serial MSP V2). So the data we push is exactly:
+--   {dest, origin, status, flags, fn_lo, fn_hi, sz_lo, sz_hi, ...payload}
 local function mspSend(function_id, payload)
-  local body = { 0,                        -- flags
-                 bit32.band(function_id, 0xFF),
-                 bit32.rshift(function_id, 8),
-                 bit32.band(#payload, 0xFF),
-                 bit32.rshift(#payload, 8) }
-  for i = 1, #payload do body[#body+1] = payload[i] end
-  body[#body+1] = crc8_dvbs2(body, 1, #body)
-
-  -- Wrap in CRSF MSP envelope: {dest, src, ...body}
-  local frame = { CRSF_ADDR_FC, CRSF_ADDR_RADIO }
-  for i = 1, #body do frame[#frame+1] = body[i] end
+  local frame = {
+    CRSF_ADDR_FC,
+    CRSF_ADDR_RADIO,
+    MSP_STATUS_V2_START,
+    0,                              -- V2 flags
+    bit32.band(function_id, 0xFF),
+    bit32.rshift(function_id, 8),
+    bit32.band(#payload, 0xFF),
+    bit32.rshift(#payload, 8),
+  }
+  for i = 1, #payload do frame[#frame+1] = payload[i] end
   crossfireTelemetryPush(CRSF_FRAMETYPE_MSP_REQ, frame)
 end
 
 -- Drain whatever's queued and return the latest decoded MSP V2 response
 -- as { fn=opcode, data={byte, byte, ...} } or nil if none.
+-- crossfireTelemetryPop returns the frame body after the type byte:
+--   frame[1] = dest, [2] = origin, [3] = status, [4] = V2 flags,
+--   [5..6]   = fn_lo / fn_hi
+--   [7..8]   = size_lo / size_hi
+--   [9..]    = payload
 local function mspRecv()
   local cmd, frame = crossfireTelemetryPop()
   if not cmd or cmd ~= CRSF_FRAMETYPE_MSP_RESP then return nil end
-  -- frame layout: {dest, src, flags, fn_lo, fn_hi, sz_lo, sz_hi, ...payload, crc}
-  if #frame < 8 then return nil end
-  local fn   = frame[4] + frame[5] * 256
-  local size = frame[6] + frame[7] * 256
+  if not frame or #frame < 8 then return nil end
+  -- Ignore continuation frames; we don't reassemble multi-fragment responses
+  -- (every opcode this script uses fits comfortably in one CRSF frame).
+  if bit32.band(frame[3], 0x10) == 0 then return nil end
+  local fn   = frame[5] + frame[6] * 256
+  local size = frame[7] + frame[8] * 256
   local data = {}
-  for i = 1, size do data[i] = frame[7 + i] end
+  for i = 1, size do data[i] = frame[8 + i] end
   return { fn = fn, data = data }
 end
 

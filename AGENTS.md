@@ -115,7 +115,16 @@ commits themselves: `git log --merges --first-parent fork/main`.
 - `make <config-target>` (for example `make ACCIF435`). Output lands in `obj/`.
   `make help`, `make targets`, `make test_help` describe the rest.
 - Fleet targets, confirm with the operator before changing: `ACCIF435`
-  (AT32F435G).
+  (AT32F435G, config lives at `src/config/configs/CUST/ACCIF435/`).
+- The repo path contains a space (`BERNIES DRIVE`). Make truncates paths at
+  the space, so `make arm_sdk_install` and the Makefile's own toolchain lookup
+  both fail. Install the toolchain by hand into the gitignored `tools/`
+  (URL and version in `mk/tools.mk`, currently 13.3.rel1) and put its `bin/`
+  on `PATH` for every build:
+  `export PATH="$PWD/tools/arm-gnu-toolchain-13.3.rel1-darwin-arm64-arm-none-eabi/bin:$PATH"`.
+- `tools/` is gitignored and git treats ignored files as expendable: checking
+  out any commit that tracks a path named `tools` silently deletes the
+  directory. Keep `tools` out of every commit.
 
 ## Betaflight code checklist
 
@@ -142,31 +151,19 @@ Gotchas the build does not confess until a target you did not compile fails.
 6. **Unit tests.** `src/test/Makefile` has a per-test `<name>_SRC :=` list; a
    new test needs its own entry. `src/test/unit/vtx_msp_unittest.cc` is a
    small clean template. Stale coverage state can segfault a rerun: `find
-   obj/test/<test_name> -name '*.gcda' -delete`.
+   obj/test/<test_name> -name '*.gcda' -delete`. A link failure naming
+   `std::__throw_logic_error` in `gtest_main.a` is a stale test tree from a
+   different compiler: `rm -rf obj/test` and rebuild.
 
 ## Topics carried
 
 - **MGRS OSD element** — `lib/main/mgrs/`, `src/main/osd/osd_elements.c`,
-  guard `USE_GPS_MGRS`, CLI `osd_gps_mgrs_pos`. Branch `feat/mgrs-osd-2026.6`.
+  guard `USE_GPS_MGRS`, CLI `osd_gps_mgrs_pos`. Branch `feat/mgrs-osd`.
 - **Post-failsafe quarantine** — after a genuine link-loss failsafe has
   disarmed the aircraft, count down and latch Paralyze unless the link properly
   recovers. Issues #4–#11, label `failsafe-quarantine`. Landed: #4 on
   `fix/msp-failsafe-config-bounds`, #6 on `feat/rc-mode-internal-latch` (the
-  latch has no caller yet). #5 and #7 are the next work.
-
-## Migration to this model (delete this section when complete)
-
-The branch model above was adopted 2026-08-29. Outstanding cleanup:
-
-- `feat/mgrs-osd-stable`, `chore/catchup-2025.12.6`, `feat/nurkkala-port`:
-  stranded on the 2025.12 line with no MGRS commits. Delete once the operator
-  confirms nothing unique is on them.
-- `feat/failsafe-quarantine`: an empty placeholder (no commits past the MGRS
-  tip). Delete.
-- `feat/mgrs-osd-2026.6`, `fix/msp-failsafe-config-bounds`,
-  `feat/rc-mode-internal-latch`: cut from `upstream/2026.6-maintenance`, not
-  from `fork/base`. Rebase each onto `fork/base` (`git rebase fork/base
-  <topic>`) and rename `feat/mgrs-osd-2026.6` to `feat/mgrs-osd`.
-- Commit `af26d2e06` on the MGRS branch contains a self-referential symlink
-  named `tools` at the repo root. Drop it during the rebase.
-- Create `fork/main` for the first time via Rebuild.
+  latch has no caller yet). #5 and #7 are the next work. This topic is
+  developed in a second checkout (a git worktree) at
+  `../betaflight-quarantine`; `git worktree list` shows which branch it holds.
+  A branch checked out in a worktree is rebased from inside that worktree.

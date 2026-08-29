@@ -159,6 +159,11 @@ Gotchas the build does not confess until a target you did not compile fails.
 
 - **MGRS OSD element** — `lib/main/mgrs/`, `src/main/osd/osd_elements.c`,
   guard `USE_GPS_MGRS`, CLI `osd_gps_mgrs_pos`. Branch `feat/mgrs-osd`.
+- **VTX band/channel changes while armed** — `src/main/io/vtx.c`,
+  `src/main/io/vtx_control.c`. Cherry-pick of upstream PR
+  betaflight/betaflight#15516 commit `03c43554f` (the PR's frequency-range
+  widening commit is deliberately not carried). Issue #14. Branch
+  `feat/vtx-armed-channel-change`.
 - **Post-failsafe quarantine** — after a genuine link-loss failsafe has
   disarmed the aircraft, count down and latch Paralyze unless the link properly
   recovers. Issues #4–#11, label `failsafe-quarantine`. Landed: #4 on

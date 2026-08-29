@@ -66,3 +66,7 @@ eeprom.bin
 AGENTS.md
 CLAUDE.md
 /tasks
+
+# Fork infrastructure: tracked on fork/base (see AGENTS.md)
+!/AGENTS.md
+!/CLAUDE.md

@@ -4111,6 +4111,13 @@ RAM_CODE static mspResult_e mspProcessInCommand(mspDescriptor_t srcDesc, int16_t
         }
         break;
     case MSP_SET_FAILSAFE_CONFIG:
+        // the base payload has been 8 bytes since this message was introduced;
+        // anything shorter is malformed, and reading it would run off the end
+        // of the buffer. Fields appended after this point must each be guarded
+        // so that an older, shorter payload leaves them at their stored values.
+        if (sbufBytesRemaining(src) < 8) {
+            return MSP_RESULT_ERROR;
+        }
         failsafeConfigMutable()->failsafe_delay = sbufReadU8(src);
         failsafeConfigMutable()->failsafe_landing_time = sbufReadU8(src);
         failsafeConfigMutable()->failsafe_throttle = sbufReadU16(src);

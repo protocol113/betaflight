@@ -57,6 +57,7 @@ extern "C" {
     #include "scheduler/scheduler.h"
 
     extern boxBitmask_t stickyModesEverDisabled;
+    extern boxBitmask_t internalLatchedModes;
 }
 
 #include "unittest_macros.h"
@@ -71,8 +72,32 @@ class RcControlsModesTest : public ::testing::Test {
 protected:
     virtual void SetUp() {
         memset(&stickyModesEverDisabled, 0, sizeof(stickyModesEverDisabled));
+        // nothing clears an internal latch in firmware, so the tests have to
+        memset(&internalLatchedModes, 0, sizeof(internalLatchedModes));
     }
 };
+
+// Helper: put every aux channel at mid-stick and rebuild the condition cache,
+// so no aux-driven mode is active and only the latch can turn anything on.
+static void resetModesToNeutral(void)
+{
+    boxBitmask_t mask;
+    memset(&mask, 0, sizeof(mask));
+    rcModeUpdate(&mask);
+
+    for (int i = 0; i < MAX_MODE_ACTIVATION_CONDITION_COUNT; i++) {
+        memset(modeActivationConditionsMutable(i), 0, sizeof(modeActivationCondition_t));
+    }
+
+    memset(&rxRuntimeState, 0, sizeof(rxRuntimeState_t));
+    rxRuntimeState.channelCount = MAX_SUPPORTED_RC_CHANNEL_COUNT - NON_AUX_CHANNEL_COUNT;
+
+    for (int index = AUX1; index < MAX_SUPPORTED_RC_CHANNEL_COUNT; index++) {
+        rcData[index] = PWM_RANGE_MIDDLE;
+    }
+
+    analyzeModeActivationConditions();
+}
 
 TEST_F(RcControlsModesTest, updateActivatedModesWithAllInputsAtMidde)
 {
@@ -785,4 +810,118 @@ void setLedBrightness(uint8_t brightness) { UNUSED(brightness); }
 void compassStartCalibration(void) {}
 void pinioBoxTaskControl(void) {}
 void schedulerIgnoreTaskExecTime(void) {}
+}
+
+// --- internal mode latch -----------------------------------------------------
+// Firmware-owned latches let a safety state (Paralyze) be turned on with no aux
+// channel assigned, and stay on for good. See rcModeLatchInternal().
+
+TEST_F(RcControlsModesTest, internalLatchActivatesParalyzeWithNoAuxCondition)
+{
+    // given no aux condition exists for Paralyze at all
+    resetModesToNeutral();
+    updateActivatedModes();
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXPARALYZE));
+
+    // when the firmware latches it
+    rcModeLatchInternal(BOXPARALYZE);
+    updateActivatedModes();
+
+    // expect it to be active
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXPARALYZE));
+    EXPECT_TRUE(rcModeIsLatchedInternal(BOXPARALYZE));
+}
+
+TEST_F(RcControlsModesTest, internalLatchSurvivesRepeatedEvaluation)
+{
+    // given a latched Paralyze
+    resetModesToNeutral();
+    rcModeLatchInternal(BOXPARALYZE);
+    updateActivatedModes();
+    ASSERT_TRUE(IS_RC_MODE_ACTIVE(BOXPARALYZE));
+
+    // when the mask is recomputed many times, as it is every rx cycle
+    for (int i = 0; i < 50; i++) {
+        updateActivatedModes();
+    }
+
+    // expect it to still be active — nothing short of a reboot clears it
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXPARALYZE));
+}
+
+TEST_F(RcControlsModesTest, internalLatchDrivesDirectLinkedMode)
+{
+    // given VTX pit mode is linked to Paralyze, and Paralyze itself has no aux
+    // condition — the fleet configuration this feature exists for
+    resetModesToNeutral();
+    modeActivationConditionsMutable(0)->modeId = BOXVTXPITMODE;
+    modeActivationConditionsMutable(0)->linkedTo = BOXPARALYZE;
+    analyzeModeActivationConditions();
+
+    updateActivatedModes();
+    ASSERT_FALSE(IS_RC_MODE_ACTIVE(BOXVTXPITMODE));
+
+    // when the firmware latches Paralyze
+    rcModeLatchInternal(BOXPARALYZE);
+    updateActivatedModes();
+
+    // expect the linked mode to come on with it, on this same evaluation —
+    // no rx packet or aux movement required
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXPARALYZE));
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXVTXPITMODE));
+}
+
+TEST_F(RcControlsModesTest, internalLatchDrivesDirectLinkedUserMode)
+{
+    // given a USER mode linked to Paralyze, as used to drive a PINIO output
+    resetModesToNeutral();
+    modeActivationConditionsMutable(0)->modeId = BOXUSER1;
+    modeActivationConditionsMutable(0)->linkedTo = BOXPARALYZE;
+    analyzeModeActivationConditions();
+
+    // when the firmware latches Paralyze
+    rcModeLatchInternal(BOXPARALYZE);
+    updateActivatedModes();
+
+    // expect the user mode to be driven too
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXUSER1));
+}
+
+TEST_F(RcControlsModesTest, internalLatchRefusesModesOtherThanParalyze)
+{
+    // given no latch
+    resetModesToNeutral();
+
+    // when something tries to latch a mode that is not Paralyze
+    rcModeLatchInternal(BOXUSER1);
+    rcModeLatchInternal(BOXARM);
+    updateActivatedModes();
+
+    // expect it to be ignored — a latch is only for the safety state
+    EXPECT_FALSE(rcModeIsLatchedInternal(BOXUSER1));
+    EXPECT_FALSE(rcModeIsLatchedInternal(BOXARM));
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXUSER1));
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXARM));
+}
+
+TEST_F(RcControlsModesTest, noInternalLatchLeavesAuxModeLogicUnchanged)
+{
+    // given an ordinary aux-driven mode and no latch anywhere
+    resetModesToNeutral();
+    modeActivationConditionsMutable(0)->auxChannelIndex = AUX1 - NON_AUX_CHANNEL_COUNT;
+    modeActivationConditionsMutable(0)->modeId = BOXARM;
+    modeActivationConditionsMutable(0)->range.startStep = CHANNEL_VALUE_TO_STEP(1750);
+    modeActivationConditionsMutable(0)->range.endStep = CHANNEL_VALUE_TO_STEP(CHANNEL_RANGE_MAX);
+    analyzeModeActivationConditions();
+
+    // when the switch is low, then high
+    rcData[AUX1] = PWM_RANGE_MIDDLE;
+    updateActivatedModes();
+    EXPECT_FALSE(IS_RC_MODE_ACTIVE(BOXARM));
+
+    rcData[AUX1] = 1800;
+    updateActivatedModes();
+
+    // expect ordinary aux behaviour, untouched by the latch machinery
+    EXPECT_TRUE(IS_RC_MODE_ACTIVE(BOXARM));
 }

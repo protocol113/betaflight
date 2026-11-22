@@ -598,6 +598,8 @@ flight_plan_nav_unittest_DEFINES := \
 flight_plan_capture_unittest_SRC := \
 		$(USER_DIR)/flight/flight_plan_capture.c \
 		$(USER_DIR)/pg/flight_plan.c \
+		$(USER_DIR)/pg/flight_plan_capture.c \
+		$(USER_DIR)/common/maths.c \
 		$(USER_DIR)/common/printf.c \
 		$(USER_DIR)/common/typeconversion.c
 

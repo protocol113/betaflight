@@ -660,3 +660,30 @@ TEST_F(FlightPlanCaptureTest, TapEditsAreAlsoSavedAfterDisarm)
     runPendingSave();
     EXPECT_EQ(1, g_eepromWrites);
 }
+
+TEST_F(FlightPlanCaptureTest, DisarmWithTheSwitchStillOnEndsAndSavesTheRoute)
+{
+    // pilot lands and disarms without flipping capture off, then unplugs
+    armingFlags = ARMED;
+    setAuto();
+    tick(true);
+    move(10.5, 0.0);
+    tick(true);
+    move(4.0, 0.0);
+    tick(true);
+
+    armingFlags = 0;
+    flightPlanCaptureOnDisarm();
+    EXPECT_EQ(3, flightPlanConfig()->waypointCount);   // end point added
+    EXPECT_STREQ("ROUTE 3 WP", flightPlanCaptureOsdMessage());
+    runPendingSave();
+    EXPECT_EQ(1, g_eepromWrites);
+
+    // switch still on after disarm: no new route until it is cycled
+    move(30.0, 0.0);
+    tick(true);
+    EXPECT_EQ(3, flightPlanConfig()->waypointCount);
+    tick(false);
+    tick(true);
+    EXPECT_EQ(1, flightPlanConfig()->waypointCount);
+}

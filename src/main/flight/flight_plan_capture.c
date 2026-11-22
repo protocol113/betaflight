@@ -141,11 +141,6 @@ static void requestSave(void)
     }
 }
 
-void flightPlanCaptureOnDisarm(void)
-{
-    requestSave();
-}
-
 // --- AUTO recording ---------------------------------------------------------
 
 // Local flat-earth offset of b from a in centimetres (east, north). Routes
@@ -288,6 +283,18 @@ static void autoUpdate(timeUs_t currentTimeUs, bool switchActive)
             const waypoint_t here = currentPositionWaypoint();
             recordPoint(currentTimeUs, plan, &here);
         }
+    }
+}
+
+// Disarm ends a recording even if the switch was left on: the pilot has
+// landed, and the save must happen before the battery comes out. The switch
+// has to be cycled before it starts another route.
+void flightPlanCaptureOnDisarm(void)
+{
+    if (recording) {
+        finishRecording(micros(), flightPlanConfigMutable(), true);
+    } else {
+        requestSave();
     }
 }
 

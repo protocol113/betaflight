@@ -164,6 +164,14 @@ Gotchas the build does not confess until a target you did not compile fails.
   betaflight/betaflight#15516 commit `03c43554f` (the PR's frequency-range
   widening commit is deliberately not carried). Issue #14. Branch
   `feat/vtx-armed-channel-change`.
+- **Automatic route recording** — `wp_capture_mode = AUTO` makes the WP CAPTURE
+  switch record a route while on (spacing / height / turn triggers, shape-
+  preserving thinning when full); edited plans save to flash after disarm.
+  `src/main/flight/flight_plan_capture.c`, settings in their own PG
+  (`pg/flight_plan_capture.{h,c}`, `PG_FLIGHT_PLAN_CAPTURE_CONFIG` 4000 — fork
+  PG ids count down from 4000 to stay clear of upstream). Issue #15. Branch
+  `feat/route-record`. Needs `USE_FLIGHT_PLAN`. Record-and-replay SITL check
+  lives outside the repo in `~/route-replay/sim/record_replay.py`.
 - **Post-failsafe quarantine** — after a genuine link-loss failsafe has
   disarmed the aircraft, count down and latch Paralyze unless the link properly
   recovers. Issues #4–#11, label `failsafe-quarantine`. Landed: #4 on

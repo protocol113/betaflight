@@ -27,7 +27,9 @@
 #include "pg/pg.h"
 
 #ifndef MAX_WAYPOINTS
-#define MAX_WAYPOINTS 30
+// protocol113 fork: 100, up from upstream's 30. An automatically recorded
+// route (wp_capture_mode = AUTO) fills 30 points in well under a minute.
+#define MAX_WAYPOINTS 100
 #endif
 
 _Static_assert(MAX_WAYPOINTS <= 255, "MAX_WAYPOINTS exceeds uint8_t waypointCount range");

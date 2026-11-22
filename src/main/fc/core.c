@@ -542,6 +542,11 @@ void disarm(flightLogDisarmReason_e reason)
             statsOnDisarm();
         }
 #endif
+#if ENABLE_FLIGHT_PLAN && !defined(USE_WING)
+        // a route recorded or edited in flight is written to flash now that
+        // the craft is down
+        flightPlanCaptureOnDisarm();
+#endif
     // Terminate crashflip mode in any disarm
     if (crashFlipModeActive) {
         crashFlipModeActive = false;

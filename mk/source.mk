@@ -17,6 +17,7 @@ PG_SRC = \
             pg/dyn_notch.c \
             pg/flash.c \
             pg/flight_plan.c \
+            pg/flight_plan_capture.c \
             pg/gimbal.c \
             pg/gps.c \
             pg/gps_lap_timer.c \

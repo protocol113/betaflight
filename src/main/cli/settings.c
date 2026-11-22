@@ -85,6 +85,7 @@
 #include "pg/adc.h"
 #include "pg/alt_hold.h"
 #include "pg/autopilot.h"
+#include "pg/flight_plan_capture.h"
 #include "pg/beeper.h"
 #include "pg/beeper_dev.h"
 #include "pg/bus_i2c.h"
@@ -218,6 +219,10 @@ static const char * const lookupTableApRxLossPolicy[] = {
 
 static const char * const lookupTableApGeofenceAction[] = {
     "LAND", "RTH"
+};
+
+static const char * const lookupTableWpCaptureMode[] = {
+    "TAP", "AUTO"
 };
 #endif
 
@@ -596,6 +601,7 @@ const lookupTableEntry_t lookupTables[] = {
     LOOKUP_TABLE_ENTRY(lookupTableApYawMode),
     LOOKUP_TABLE_ENTRY(lookupTableApRxLossPolicy),
     LOOKUP_TABLE_ENTRY(lookupTableApGeofenceAction),
+    LOOKUP_TABLE_ENTRY(lookupTableWpCaptureMode),
 #endif
 #ifdef USE_GPS_RESCUE
     LOOKUP_TABLE_ENTRY(lookupTableRescueSanityType),
@@ -2084,6 +2090,13 @@ const clivalue_t valueTable[] = {
     { PARAM_NAME_AP_RX_LOSS_POLICY,          VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_AP_RX_LOSS_POLICY }, PG_AUTOPILOT, offsetof(autopilotConfig_t, rxLossPolicy) },
     { PARAM_NAME_AP_MAX_DISTANCE_FROM_HOME,  VAR_UINT16 | MASTER_VALUE, .config.minmaxUnsigned = { 0, 10000 }, PG_AUTOPILOT, offsetof(autopilotConfig_t, maxDistanceFromHomeM) },
     { PARAM_NAME_AP_GEOFENCE_ACTION,         VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_AP_GEOFENCE_ACTION }, PG_AUTOPILOT, offsetof(autopilotConfig_t, geofenceAction) },
+
+    // Route capture on the WP CAPTURE switch
+    { PARAM_NAME_WP_CAPTURE_MODE,            VAR_UINT8  | MASTER_VALUE | MODE_LOOKUP, .config.lookup = { TABLE_WP_CAPTURE_MODE }, PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, mode) },
+    { PARAM_NAME_WP_CAPTURE_SPACING_M,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 2, 100 },  PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, spacingM) },
+    { PARAM_NAME_WP_CAPTURE_ALT_M,           VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, 50 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, altStepM) },
+    { PARAM_NAME_WP_CAPTURE_TURN_DEG,        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 90 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, turnDeg) },
+    { PARAM_NAME_WP_CAPTURE_MIN_ALT_M,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, minAltM) },
 #endif // ENABLE_FLIGHT_PLAN
 #endif // !USE_WING
 

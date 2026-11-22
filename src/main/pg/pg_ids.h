@@ -170,6 +170,10 @@
 // TODO TBC
 #define PG_DISPLAY_PORT_FBOSD_CONFIG 566
 
+// protocol113 fork: IDs counted down from 4000 so upstream additions, which
+// grow upward from the 500s, cannot collide with them on a rebase.
+#define PG_FLIGHT_PLAN_CAPTURE_CONFIG 4000
+
 // OSD configuration (subject to change)
 #define PG_OSD_FONT_CONFIG 2047
 #define PG_OSD_VIDEO_CONFIG 2046

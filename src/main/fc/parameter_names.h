@@ -222,6 +222,13 @@
 #define PARAM_NAME_AP_MAX_DISTANCE_FROM_HOME "ap_max_distance_from_home"
 #define PARAM_NAME_AP_GEOFENCE_ACTION "ap_geofence_action"
 
+// Route capture on the WP CAPTURE switch (protocol113 fork)
+#define PARAM_NAME_WP_CAPTURE_MODE "wp_capture_mode"
+#define PARAM_NAME_WP_CAPTURE_SPACING_M "wp_capture_spacing_m"
+#define PARAM_NAME_WP_CAPTURE_ALT_M "wp_capture_alt_m"
+#define PARAM_NAME_WP_CAPTURE_TURN_DEG "wp_capture_turn_deg"
+#define PARAM_NAME_WP_CAPTURE_MIN_ALT_M "wp_capture_min_alt_m"
+
 // Flight-plan OSD minimap
 #define PARAM_NAME_OSD_NAV_MAP_MODE "osd_nav_map_mode"
 #define PARAM_NAME_OSD_NAV_MAP_CENTRE "osd_nav_map_centre"

@@ -35,6 +35,7 @@ PG_RESET_TEMPLATE(flightPlanCaptureConfig_t, flightPlanCaptureConfig,
     .spacingM = 10,
     .altStepM = 3,
     .turnDeg = 25,
+    .minAltM = 5,
 );
 
 #endif // ENABLE_FLIGHT_PLAN && !USE_WING

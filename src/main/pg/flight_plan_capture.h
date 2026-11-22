@@ -39,6 +39,7 @@ typedef struct flightPlanCaptureConfig_s {
     uint8_t spacingM;       // AUTO: horizontal distance between recorded points, metres
     uint8_t altStepM;       // AUTO: height change that forces a point, metres
     uint8_t turnDeg;        // AUTO: change of direction that forces a point, degrees
+    uint8_t minAltM;        // AUTO: nothing is recorded below this height above takeoff, metres (0 = no floor)
 } flightPlanCaptureConfig_t;
 
 PG_DECLARE(flightPlanCaptureConfig_t, flightPlanCaptureConfig);

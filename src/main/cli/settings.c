@@ -2093,6 +2093,7 @@ const clivalue_t valueTable[] = {
     { PARAM_NAME_WP_CAPTURE_SPACING_M,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 2, 100 },  PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, spacingM) },
     { PARAM_NAME_WP_CAPTURE_ALT_M,           VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 1, 50 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, altStepM) },
     { PARAM_NAME_WP_CAPTURE_TURN_DEG,        VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 5, 90 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, turnDeg) },
+    { PARAM_NAME_WP_CAPTURE_MIN_ALT_M,       VAR_UINT8  | MASTER_VALUE, .config.minmaxUnsigned = { 0, 50 },   PG_FLIGHT_PLAN_CAPTURE_CONFIG, offsetof(flightPlanCaptureConfig_t, minAltM) },
 #endif // ENABLE_FLIGHT_PLAN
 #endif // !USE_WING
 

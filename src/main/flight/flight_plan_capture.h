@@ -36,6 +36,9 @@
 // wp_capture_spacing_m, on a wp_capture_alt_m height change, or on a turn of
 // wp_capture_turn_deg. Switching off adds the end point. A full plan drops the
 // point whose removal changes the route shape least.
+// Nothing is recorded below wp_capture_min_alt_m above takeoff, a switch
+// already on at power-up is ignored until cycled, and disarming ends the
+// recording without adding a point.
 //
 // In both modes an edited plan is written to flash once the craft is
 // disarmed (at switch-off if already disarmed, otherwise after disarm).

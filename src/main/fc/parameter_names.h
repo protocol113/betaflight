@@ -227,6 +227,7 @@
 #define PARAM_NAME_WP_CAPTURE_SPACING_M "wp_capture_spacing_m"
 #define PARAM_NAME_WP_CAPTURE_ALT_M "wp_capture_alt_m"
 #define PARAM_NAME_WP_CAPTURE_TURN_DEG "wp_capture_turn_deg"
+#define PARAM_NAME_WP_CAPTURE_MIN_ALT_M "wp_capture_min_alt_m"
 
 // Flight-plan OSD minimap
 #define PARAM_NAME_OSD_NAV_MAP_MODE "osd_nav_map_mode"

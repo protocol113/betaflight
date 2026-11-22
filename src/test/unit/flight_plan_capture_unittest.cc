@@ -52,6 +52,7 @@ namespace {
 timeUs_t g_stubMicros;
 bool g_stubNavActive;
 bool g_stubConfigDirty;
+float g_stubAltitudeCm;
 int g_eepromWrites;
 dispatchEntry_t *g_pendingDispatch;
 } // namespace
@@ -74,6 +75,11 @@ void dispatchAdd(dispatchEntry_t *entry, int delayUs)
 {
     UNUSED(delayUs);
     g_pendingDispatch = entry;
+}
+
+float getAltitudeCm(void)
+{
+    return g_stubAltitudeCm;
 }
 
 bool isConfigDirty(void)
@@ -101,7 +107,8 @@ protected:
         memset(&gpsSol, 0, sizeof(gpsSol));
         flightPlanConfigMutable()->waypointCount = 0;
         // shipped defaults: TAP, 10 m spacing, 3 m height step, 25 deg turn
-        *flightPlanCaptureConfigMutable() = { WP_CAPTURE_MODE_TAP, 10, 3, 25 };
+        *flightPlanCaptureConfigMutable() = { WP_CAPTURE_MODE_TAP, 10, 3, 25, 5 };
+        g_stubAltitudeCm = 1000.0f;                // 10 m above takeoff
         stateFlags = GPS_FIX;
         armingFlags = 0;
         g_stubNavActive = false;
@@ -110,6 +117,9 @@ protected:
         g_pendingDispatch = NULL;
         g_stubMicros = 1000000;
         setPosition(START_LAT, START_LON, START_ALT_CM);
+        // the reset leaves the module as at power-up; the switch has been
+        // seen off, as it has on any normal flight
+        flightPlanCaptureUpdate(g_stubMicros, false, true);
     }
 
     // move relative to the current position, in metres
@@ -674,16 +684,93 @@ TEST_F(FlightPlanCaptureTest, DisarmWithTheSwitchStillOnEndsAndSavesTheRoute)
 
     armingFlags = 0;
     flightPlanCaptureOnDisarm();
-    EXPECT_EQ(3, flightPlanConfig()->waypointCount);   // end point added
-    EXPECT_STREQ("ROUTE 3 WP", flightPlanCaptureOsdMessage());
+    // no end point: the craft is on the ground and the route must not go there
+    EXPECT_EQ(2, flightPlanConfig()->waypointCount);
+    EXPECT_STREQ("ROUTE 2 WP", flightPlanCaptureOsdMessage());
     runPendingSave();
     EXPECT_EQ(1, g_eepromWrites);
 
     // switch still on after disarm: no new route until it is cycled
     move(30.0, 0.0);
     tick(true);
-    EXPECT_EQ(3, flightPlanConfig()->waypointCount);
+    EXPECT_EQ(2, flightPlanConfig()->waypointCount);
     tick(false);
     tick(true);
     EXPECT_EQ(1, flightPlanConfig()->waypointCount);
+}
+
+// --- review findings ---
+
+TEST_F(FlightPlanCaptureTest, PoweringUpWithTheSwitchOnKeepsTheSavedRoute)
+{
+    flightPlanCaptureResetForTest();               // power-up: switch never seen off
+    setAuto();
+    fillPlan(6);
+
+    tick(true);
+    move(20.0, 0.0);
+    tick(true);
+    EXPECT_EQ(6, flightPlanConfig()->waypointCount);
+
+    tick(false);                                   // cycled: now it may record
+    tick(true);
+    EXPECT_EQ(1, flightPlanConfig()->waypointCount);
+}
+
+TEST_F(FlightPlanCaptureTest, RouteClearedFromOutsideMidRecordingIsHandled)
+{
+    setAuto();
+    tick(true);
+    move(10.5, 0.0);
+    tick(true);
+    flightPlanConfigMutable()->waypointCount = 0;  // CLI `waypoint clear` / MAVLink clear
+
+    move(1.0, 0.0);
+    tick(true);                                    // must not read waypoints[-1]
+    ASSERT_EQ(1, flightPlanConfig()->waypointCount);
+    EXPECT_TRUE(waypointNear(0, 11.5, 0.0));
+}
+
+TEST_F(FlightPlanCaptureTest, RecordingWaitsUntilAboveTheMinimumHeight)
+{
+    setAuto();
+    fillPlan(4);
+    g_stubAltitudeCm = 100.0f;                     // on the ground / just lifted off
+
+    tick(true);
+    EXPECT_EQ(4, flightPlanConfig()->waypointCount);   // old route untouched
+
+    g_stubAltitudeCm = 600.0f;                     // climbed past 5 m, switch still on
+    tick(true);
+    EXPECT_EQ(1, flightPlanConfig()->waypointCount);
+}
+
+TEST_F(FlightPlanCaptureTest, PointsBelowTheMinimumHeightAreNotRecorded)
+{
+    setAuto();
+    tick(true);
+    move(10.5, 0.0);
+    tick(true);
+    ASSERT_EQ(2, flightPlanConfig()->waypointCount);
+
+    g_stubAltitudeCm = 200.0f;                     // descending to land, switch still on
+    move(10.5, 0.0, -8.0);
+    tick(true);
+    EXPECT_EQ(2, flightPlanConfig()->waypointCount);
+
+    tick(false);                                   // no low end point either
+    EXPECT_EQ(2, flightPlanConfig()->waypointCount);
+    EXPECT_STREQ("ROUTE 2 WP", flightPlanCaptureOsdMessage());
+}
+
+TEST_F(FlightPlanCaptureTest, MinimumHeightZeroAllowsABenchWalk)
+{
+    flightPlanCaptureConfigMutable()->minAltM = 0;
+    setAuto();
+    g_stubAltitudeCm = 0.0f;
+
+    tick(true);
+    move(10.5, 0.0);
+    tick(true);
+    EXPECT_EQ(2, flightPlanConfig()->waypointCount);
 }

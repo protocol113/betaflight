@@ -39,6 +39,7 @@
 #include "fc/runtime_config.h"
 
 #include "flight/flight_plan_nav.h"
+#include "flight/position.h"
 
 #include "io/gps.h"
 
@@ -80,6 +81,9 @@ static bool pressAccepted = false;    // press happened somewhere edits are allo
 // AUTO recording state
 static bool recording = false;        // a route is being recorded
 static bool pressConsumed = false;    // this switch-on already started (or was refused) a route
+// A switch that is already on at power-up must not start a route: the first
+// GPS fix would replace the saved plan. Recording needs an off->on change.
+static bool switchSeenOff = false;
 
 // Persisting the plan
 static bool planUnsaved = false;      // the plan was edited since the last flash write
@@ -199,6 +203,15 @@ static void recordPoint(timeUs_t currentTimeUs, flightPlanConfig_t *plan, const 
     setMessage(currentTimeUs, "REC WP%d", plan->waypointCount);
 }
 
+// Nothing is recorded below wp_capture_min_alt_m above the takeoff point:
+// the executor flies a waypoint's height as stored and has no floor of its
+// own, so takeoff, landing and ground handling must stay out of the route.
+static bool aboveMinHeight(void)
+{
+    const uint8_t minAltM = flightPlanCaptureConfig()->minAltM;
+    return minAltM == 0 || getAltitudeCm() >= minAltM * 100.0f;
+}
+
 // True when the craft has moved far enough from the last recorded point, in
 // distance, height or direction, to need a new one.
 static bool needsPoint(const flightPlanConfig_t *plan, const waypoint_t *here)
@@ -233,7 +246,7 @@ static bool needsPoint(const flightPlanConfig_t *plan, const waypoint_t *here)
 static void finishRecording(timeUs_t currentTimeUs, flightPlanConfig_t *plan, bool addEndPoint)
 {
     recording = false;
-    if (addEndPoint && STATE(GPS_FIX) && plan->waypointCount > 0) {
+    if (addEndPoint && STATE(GPS_FIX) && aboveMinHeight() && plan->waypointCount > 0) {
         const waypoint_t here = currentPositionWaypoint();
         const waypoint_t *last = &plan->waypoints[plan->waypointCount - 1];
         float e, n;
@@ -262,21 +275,24 @@ static void autoUpdate(timeUs_t currentTimeUs, bool switchActive)
         if (!editsAllowed()) {
             // AUTOPILOT took the plan: the route is what was recorded so far
             finishRecording(currentTimeUs, plan, false);
-        } else if (STATE(GPS_FIX)) {
+        } else if (STATE(GPS_FIX) && aboveMinHeight()) {
             const waypoint_t here = currentPositionWaypoint();
-            if (needsPoint(plan, &here)) {
+            // count 0 here means the plan was cleared from the CLI or over
+            // MAVLink mid-recording: start again from this point
+            if (plan->waypointCount == 0 || needsPoint(plan, &here)) {
                 recordPoint(currentTimeUs, plan, &here);
             }
         }
         return;
     }
 
-    // Switch on, not recording: start once per switch-on, as soon as a fix is
-    // available. The old route is only replaced when a new one can begin.
-    if (!pressConsumed) {
+    // Switch on, not recording: start once per switch-on, as soon as there is
+    // a fix and the craft is above the minimum height. The old route is only
+    // replaced when a new one can begin.
+    if (!pressConsumed && switchSeenOff) {
         if (!editsAllowed()) {
             pressConsumed = true;   // refused, not merely waiting for a fix
-        } else if (STATE(GPS_FIX)) {
+        } else if (STATE(GPS_FIX) && aboveMinHeight()) {
             pressConsumed = true;
             plan->waypointCount = 0;
             recording = true;
@@ -287,12 +303,13 @@ static void autoUpdate(timeUs_t currentTimeUs, bool switchActive)
 }
 
 // Disarm ends a recording even if the switch was left on: the pilot has
-// landed, and the save must happen before the battery comes out. The switch
-// has to be cycled before it starts another route.
+// landed, and the save must happen before the battery comes out. No end
+// point is added - the craft is on the ground. The switch has to be cycled
+// before it starts another route.
 void flightPlanCaptureOnDisarm(void)
 {
     if (recording) {
-        finishRecording(micros(), flightPlanConfigMutable(), true);
+        finishRecording(micros(), flightPlanConfigMutable(), false);
     } else {
         requestSave();
     }
@@ -356,6 +373,10 @@ void flightPlanCaptureUpdate(timeUs_t currentTimeUs, bool switchActive, bool cha
         return;
     }
 
+    if (!switchActive) {
+        switchSeenOff = true;
+    }
+
     if (flightPlanCaptureConfig()->mode == WP_CAPTURE_MODE_AUTO) {
         autoUpdate(currentTimeUs, switchActive);
     } else {
@@ -386,6 +407,7 @@ void flightPlanCaptureResetForTest(void)
     pressAccepted = false;
     recording = false;
     pressConsumed = false;
+    switchSeenOff = false;
     planUnsaved = false;
     msgValid = false;
     msgExpireUs = 0;

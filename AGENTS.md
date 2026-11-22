@@ -167,11 +167,17 @@ Gotchas the build does not confess until a target you did not compile fails.
 - **Automatic route recording** — `wp_capture_mode = AUTO` makes the WP CAPTURE
   switch record a route while on (spacing / height / turn triggers, shape-
   preserving thinning when full); edited plans save to flash after disarm.
+  Route limit raised to 100 (`MAX_WAYPOINTS`); `wp_capture_min_alt_m` keeps
+  ground handling out of a route.
   `src/main/flight/flight_plan_capture.c`, settings in their own PG
   (`pg/flight_plan_capture.{h,c}`, `PG_FLIGHT_PLAN_CAPTURE_CONFIG` 4000 — fork
   PG ids count down from 4000 to stay clear of upstream). Issue #15. Branch
   `feat/route-record`. Needs `USE_FLIGHT_PLAN`. Record-and-replay SITL check
   lives outside the repo in `~/route-replay/sim/record_replay.py`.
+- **Autopilot height floor** — `ap_min_nav_altitude_m` (default 5) was an
+  unused setting; `computeTargetEnuM` in `src/main/flight/flight_plan_nav.c`
+  now clamps FLYOVER/FLYBY/HOLD targets to it. Issue #16. Branch
+  `fix/flight-plan-min-altitude`.
 - **Post-failsafe quarantine** — after a genuine link-loss failsafe has
   disarmed the aircraft, count down and latch Paralyze unless the link properly
   recovers. Issues #4–#11, label `failsafe-quarantine`. Landed: #4 on

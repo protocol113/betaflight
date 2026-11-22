@@ -122,6 +122,12 @@ commits themselves: `git log --merges --first-parent fork/main`.
   (URL and version in `mk/tools.mk`, currently 13.3.rel1) and put its `bin/`
   on `PATH` for every build:
   `export PATH="$PWD/tools/arm-gnu-toolchain-13.3.rel1-darwin-arm64-arm-none-eabi/bin:$PATH"`.
+- Incremental builds miss header changes on this path (the space in
+  `BERNIES DRIVE` breaks make's dependency files). A changed `.h` leaves
+  stale objects: on 2026-11-22 a `MAX_WAYPOINTS` change built firmware with
+  two different route sizes. After any header edit or branch switch,
+  `rm -rf obj/main obj/test` before building anything that will be flashed
+  or trusted, and confirm with `arm-none-eabi-nm -S` when a size matters.
 - `tools/` is gitignored and git treats ignored files as expendable: checking
   out any commit that tracks a path named `tools` silently deletes the
   directory. Keep `tools` out of every commit.

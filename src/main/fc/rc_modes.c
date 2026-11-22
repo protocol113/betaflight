@@ -49,6 +49,10 @@
 boxBitmask_t rcModeActivationMask; // one bit per mode defined in boxId_e
 STATIC_UNIT_TESTED boxBitmask_t stickyModesEverDisabled;
 
+// Modes the firmware has latched on for itself, with no aux channel involved.
+// Empty at boot; nothing clears it, so a latched mode stays on until reboot.
+STATIC_UNIT_TESTED boxBitmask_t internalLatchedModes;
+
 static bool airmodeEnabled;
 
 static int activeMacCount = 0;
@@ -160,6 +164,18 @@ void updateActivatedModes(void)
         }
     }
 
+    // Merge modes the firmware latched on itself. This has to happen after the
+    // aux conditions above, so it cannot be overridden by a switch position,
+    // and before the linked modes below, so a direct link still sees it. Uses
+    // the same clr/set pair as a latched sticky mode: the masks are XORed
+    // together at the end, so clear-and-set is what leaves the bit on.
+    for (boxId_e id = 0; id < CHECKBOX_ITEM_COUNT; id++) {
+        if (bitArrayGet(&internalLatchedModes, id)) {
+            bitArrayClr(&andMask, id);
+            bitArraySet(&newMask, id);
+        }
+    }
+
     // Update linked modes
     for (int i = 0; i < activeLinkedMacCount; i++) {
         const modeActivationCondition_t *mac = modeActivationConditions(activeLinkedMacArray[i]);
@@ -173,6 +189,23 @@ void updateActivatedModes(void)
     rcModeUpdate(&newMask);
 
     airmodeEnabled = featureIsEnabled(FEATURE_AIRMODE) || IS_RC_MODE_ACTIVE(BOXAIRMODE);
+}
+
+// Latch a mode on from firmware, with no aux channel involved. Intended for
+// safety states the pilot must not be able to switch back off: the latch is
+// re-applied on every mode evaluation and there is deliberately no way to
+// clear it short of a reboot. Restricted to Paralyze — anything else wants an
+// aux condition, not a latch.
+void rcModeLatchInternal(boxId_e boxId)
+{
+    if (boxId == BOXPARALYZE) {
+        bitArraySet(&internalLatchedModes, boxId);
+    }
+}
+
+bool rcModeIsLatchedInternal(boxId_e boxId)
+{
+    return bitArrayGet(&internalLatchedModes, boxId);
 }
 
 bool isModeActivationConditionPresent(boxId_e modeId)

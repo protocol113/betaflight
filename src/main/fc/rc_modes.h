@@ -152,6 +152,8 @@ bool isAirmodeEnabled(void);
 
 bool isRangeActive(uint8_t auxChannelIndex, const channelRange_t *range);
 void updateActivatedModes(void);
+void rcModeLatchInternal(boxId_e boxId);
+bool rcModeIsLatchedInternal(boxId_e boxId);
 bool isModeActivationConditionPresent(boxId_e modeId);
 bool isModeActivationConditionLinked(boxId_e modeId);
 void removeModeActivationCondition(boxId_e modeId);

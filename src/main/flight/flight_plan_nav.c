@@ -292,6 +292,18 @@ static bool computeTargetEnuM(const waypoint_t *wp, vector3_t *out)
     // whichever source armed it first (baro or GPS). zBiasM is the frame
     // offset between the two, which aligns the target Up with the feedback Up.
     out->v[ENU_U] = (wp->altitude - origin.altCm) * 0.01f + fp.zBiasM;
+
+    // Height floor (protocol113 fork). ap_min_nav_altitude_m is otherwise
+    // unused, leaving nothing between a low stored waypoint - recorded while
+    // landing, or shifted by GPS height error between sessions - and the
+    // ground. Up is zero at the arm point. LAND and TAKEOFF manage their own
+    // heights and are left alone; 0 disables the floor.
+    if (wp->type == WAYPOINT_TYPE_FLYOVER || wp->type == WAYPOINT_TYPE_FLYBY || wp->type == WAYPOINT_TYPE_HOLD) {
+        const float floorM = autopilotConfig()->minNavAltitudeM;
+        if (floorM > 0.0f && out->v[ENU_U] < floorM) {
+            out->v[ENU_U] = floorM;
+        }
+    }
     return true;
 }
 

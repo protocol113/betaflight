@@ -400,6 +400,28 @@ TEST_F(FlightPlanNavTest, EngageSetsFirstWaypointTarget)
     EXPECT_TRUE(g_lastTarget.includeAltitude);
 }
 
+TEST_F(FlightPlanNavTest, LowWaypointIsRaisedToTheMinimumNavAltitude)
+{
+    // Origin at 100 m AMSL; waypoint stored 1 m above it. With a 5 m floor
+    // the target must be 5 m up, not 1 m.
+    autopilotConfigMutable()->minNavAltitudeM = 5;
+    addWaypoint(1000, 1000, 10100, WAYPOINT_TYPE_FLYBY);
+
+    flightPlanNavEngage();
+
+    ASSERT_TRUE(g_lastTarget.valid);
+    EXPECT_NEAR(g_lastTarget.targetEfM.z, 5.0f, 0.01f);
+}
+
+TEST_F(FlightPlanNavTest, MinimumNavAltitudeLeavesHigherWaypointsAndLandingsAlone)
+{
+    autopilotConfigMutable()->minNavAltitudeM = 5;
+    addWaypoint(1000, 1000, 12000, WAYPOINT_TYPE_FLYBY);   // 20 m up: untouched
+    flightPlanNavEngage();
+    ASSERT_TRUE(g_lastTarget.valid);
+    EXPECT_NEAR(g_lastTarget.targetEfM.z, 20.0f, 0.01f);
+}
+
 TEST_F(FlightPlanNavTest, FallsBackToMaxVelocityWhenWaypointSpeedZero)
 {
     addWaypoint(10, 20, 15000, WAYPOINT_TYPE_FLYOVER);
